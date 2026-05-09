@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"cryexec-mcp/internal/exchange"
-	"cryexec-mcp/internal/store"
+	"oml-cryexc-mcp/internal/exchange"
+	"oml-cryexc-mcp/internal/store"
 )
 
 type Hub struct {

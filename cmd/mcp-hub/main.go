@@ -9,10 +9,10 @@ import (
 	"syscall"
 	"time"
 
-	"cryexec-mcp/internal/exchange"
-	"cryexec-mcp/internal/hub"
-	"cryexec-mcp/internal/mcp"
-	"cryexec-mcp/internal/store"
+	"oml-cryexc-mcp/internal/exchange"
+	"oml-cryexc-mcp/internal/hub"
+	"oml-cryexc-mcp/internal/mcp"
+	"oml-cryexc-mcp/internal/store"
 )
 
 func main() {
@@ -149,7 +149,7 @@ func main() {
 		}
 	}()
 
-	slog.Info("cryexec-mcp started", "symbols", symbols, "mcp", "http://localhost:8080")
+	slog.Info("oml-cryexc-mcp started", "symbols", symbols, "mcp", "http://localhost:8080")
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)

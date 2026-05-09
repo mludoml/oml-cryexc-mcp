@@ -26,7 +26,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: cryexec-mcp
+    container_name: oml-cryexc-mcp
     environment:
       DB_URL: postgres://cryexec:cryexec_secret@timescaledb:5432/cryexec?sslmode=disable
       SYMBOLS: BTCUSDT

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"cryexec-mcp/internal/store"
+	"oml-cryexc-mcp/internal/store"
 )
 
 type Server struct {

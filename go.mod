@@ -1,4 +1,4 @@
-module cryexec-mcp
+module oml-cryexc-mcp
 
 go 1.23
 

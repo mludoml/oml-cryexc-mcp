@@ -7,7 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"cryexec-mcp/internal/exchange"
+	"oml-cryexc-mcp/internal/exchange"
 )
 
 type Store struct {
