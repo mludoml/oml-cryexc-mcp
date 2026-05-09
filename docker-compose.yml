@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    container_name: cryexec-db
+    environment:
+      POSTGRES_USER: cryexec
+      POSTGRES_PASSWORD: cryexec_secret
+      POSTGRES_DB: cryexec
+    volumes:
+      - /volume1/docker/cryexec-db:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    mem_limit: 1536m
+    cpus: 1.5
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cryexec -d cryexec"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mcp-hub:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cryexec-mcp
+    environment:
+      DB_URL: postgres://cryexec:cryexec_secret@timescaledb:5432/cryexec?sslmode=disable
+      SYMBOLS: BTCUSDT
+      LOG_LEVEL: info
+    ports:
+      - "8080:8080"
+    mem_limit: 1024m
+    cpus: 1.5
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    volumes:
+      - /volume1/docker/cryexec-logs:/app/logs
