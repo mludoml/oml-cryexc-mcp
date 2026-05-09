@@ -48,20 +48,90 @@ func main() {
 
 	for _, sym := range symbols {
 		sym = strings.TrimSpace(sym)
-		
+
 		binanceSpot := exchange.NewBinanceConnector()
 		if err := binanceSpot.Connect(sym, "spot"); err != nil {
 			slog.Error("binance spot connect", "err", err)
-			continue
+		} else {
+			h.AddConnector(binanceSpot)
 		}
-		h.AddConnector(binanceSpot)
-		
+
 		binancePerp := exchange.NewBinanceConnector()
 		if err := binancePerp.Connect(sym, "perp"); err != nil {
 			slog.Error("binance perp connect", "err", err)
-			continue
+		} else {
+			h.AddConnector(binancePerp)
 		}
-		h.AddConnector(binancePerp)
+
+		bybitSpot := exchange.NewBybitConnector()
+		if err := bybitSpot.Connect(sym, "spot"); err != nil {
+			slog.Error("bybit spot connect", "err", err)
+		} else {
+			h.AddConnector(bybitSpot)
+		}
+
+		bybitPerp := exchange.NewBybitConnector()
+		if err := bybitPerp.Connect(sym, "perp"); err != nil {
+			slog.Error("bybit perp connect", "err", err)
+		} else {
+			h.AddConnector(bybitPerp)
+		}
+
+		okxSpot := exchange.NewOKXConnector()
+		if err := okxSpot.Connect(sym, "spot"); err != nil {
+			slog.Error("okx spot connect", "err", err)
+		} else {
+			h.AddConnector(okxSpot)
+		}
+
+		okxPerp := exchange.NewOKXConnector()
+		if err := okxPerp.Connect(sym, "perp"); err != nil {
+			slog.Error("okx perp connect", "err", err)
+		} else {
+			h.AddConnector(okxPerp)
+		}
+
+		coinbase := exchange.NewCoinbaseConnector()
+		if err := coinbase.Connect(sym, "spot"); err != nil {
+			slog.Error("coinbase connect", "err", err)
+		} else {
+			h.AddConnector(coinbase)
+		}
+
+		hyperliquid := exchange.NewHyperliquidConnector()
+		if err := hyperliquid.Connect(sym, "perp"); err != nil {
+			slog.Error("hyperliquid connect", "err", err)
+		} else {
+			h.AddConnector(hyperliquid)
+		}
+
+		bitgetSpot := exchange.NewBitgetConnector()
+		if err := bitgetSpot.Connect(sym, "spot"); err != nil {
+			slog.Error("bitget spot connect", "err", err)
+		} else {
+			h.AddConnector(bitgetSpot)
+		}
+
+		bitgetPerp := exchange.NewBitgetConnector()
+		if err := bitgetPerp.Connect(sym, "perp"); err != nil {
+			slog.Error("bitget perp connect", "err", err)
+		} else {
+			h.AddConnector(bitgetPerp)
+		}
+
+		bitfinexSpot := exchange.NewBitfinexConnector()
+		if err := bitfinexSpot.Connect(sym, "spot"); err != nil {
+			slog.Error("bitfinex spot connect", "err", err)
+		} else {
+			h.AddConnector(bitfinexSpot)
+		}
+
+		bitfinexPerp := exchange.NewBitfinexConnector()
+		if err := bitfinexPerp.Connect(sym, "perp"); err != nil {
+			slog.Error("bitfinex perp connect", "err", err)
+		} else {
+			h.AddConnector(bitfinexPerp)
+		}
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

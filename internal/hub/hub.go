@@ -108,9 +108,9 @@ func (h *Hub) snapshotLoop() {
 			return
 		case <-ticker.C:
 			for _, c := range h.connectors {
-				// Try to emit snapshot if connector supports it
-				if bc, ok := c.(*exchange.BinanceConnector); ok {
-					bc.EmitOrderbookSnapshot(0.01) // 1 cent tick for BTC
+				switch conn := c.(type) {
+				case interface{ EmitOrderbookSnapshot(float64) }:
+					conn.EmitOrderbookSnapshot(0.01)
 				}
 			}
 		}
