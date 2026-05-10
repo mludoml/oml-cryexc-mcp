@@ -1,0 +1,6 @@
+RETEST SCHEDULED
+Target: 15:30 CEST (NY Open)
+Command: go run ./cmd/test/main.go
+Condition: Crypto markets must be active
+Status: WAITING
+Created: 2026-05-10T04:00:00+02:00
