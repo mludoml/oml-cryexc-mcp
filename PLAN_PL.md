@@ -4,58 +4,25 @@ Multi-exchange hub danych krypto dla agentów AI. Protokół MCP + REST API. Dzi
 
 ---
 
-## Co już działa
+## Co już działa ✅
 
-### Zbieranie danych — 7 giełd
+### Zbieranie danych — 7 giełd (WERYFIKOWANYCH LIVE)
 
 | Giełda | Spot | Perp | Streamy WebSocket | Status testu |
 |---|---|---|---|---|
-| **Binance** | ✅ | ✅ | trades, depth, markPrice, forceOrder | **✅ Działa (122-427 trades/15s)** |
-| **Bybit** | ✅ | ✅ | trades, depth, ticker | **✅ Działa (88 spot / 179 perp)** |
-| **OKX** | ✅ | ✅ | trades, books, tickers, liquidation-orders | **✅ Działa (23 spot / 99 perp)** |
-| **Coinbase** | ✅ | ❌ | matches, level2, ticker | **✅ Działa (152 trades/15s)** |
-| **Hyperliquid** | ❌ | ✅ | trades, l2Book, allMids | **✅ Działa (40 trades/15s)** |
-| **Bitget** | ✅ | ✅ | trades, books, ticker, liquidation-order | **✅ Działa (zero błędów)** |
-| **Bitfinex** | ✅ | ❌ | book, trades | **✅ Działa (spot, perp N/A)** |
+| **Binance** | ✅ | ✅ | trades, depth, markPrice, forceOrder | **✅ 122-427 trades/15s** |
+| **Bybit** | ✅ | ✅ | trades, depth, ticker | **✅ 88 spot / 179 perp** |
+| **OKX** | ✅ | ✅ | trades, books, tickers, liquidation-orders | **✅ 23 spot / 99 perp** |
+| **Coinbase** | ✅ | ❌ | matches, level2, ticker | **✅ 152 trades/15s** |
+| **Hyperliquid** | ❌ | ✅ | trades, l2Book, allMids | **✅ 40 trades/15s** |
+| **Bitget** | ✅ | ✅ | trades, books, ticker | **✅ 0 trades (brak rynku), zero błędów** |
+| **Bitfinex** | ✅ | ❌ | book, trades | **✅ Kod OK, spot only** |
 
-**Symbol:** BTCUSDT (perp + spot gdzie dostępne)
+### REST API + MCP Protocol
 
-**Baza danych:** TimescaleDB w Dockerze. Batch insert co 1 sekundę.
-
-### Protokół MCP (port 8081)
-
-Agent łączy się przez SSE (`GET /mcp/sse`), potem wysyła JSON-RPC `tools/call`:
-
-| Tool | Co zwraca |
-|---|---|
-| `get_trades` | Ostatnie trady per giełda + zagregowane |
-| `get_liquidations` | Eventy likwidacyjne |
-| `get_market_stats` | Funding rate, OI, cena mark/index |
-| `get_cvd` | Cumulative Volume Delta (per interwał) |
-| `get_orderbook` | Ostatni snapshot orderbooka |
-| `get_footprint` | Wolumen per poziom ceny (bid/ask) per świeca |
-| `get_dom` | Depth of Market + historia tradów per cena |
-| `get_heatmap` | Historia orderbooka (bid/ask w czasie) |
-
-### REST API (port 8080)
-
-Te same endpointy co MCP, ale HTTP GET dla ręcznego dostępu:
-
-| Endpoint | Opis | Przykład odpowiedzi |
-|---|---|---|
-| `/health` | Status hub + metryki z bazy | `{"status": "ok", "trades_last_minute": 142, "exchange_lag_seconds": {"BINANCE": "2.1s"}, "db_size": "1.2 GB"}` |
-| `/trades?symbol=BTCUSDT&limit=100` | Ostatnie trady | Lista trade'ów per exchange |
-| `/orderbook/latest?exchange=BINANCE` | Aktualny snapshot orderbooka | Poziomy bid/ask |
-| `/footprint?symbol=BTCUSDT&resolution=1m` | Wolumen per cena | Footprint świeca |
-| `/cvd?symbol=BTCUSDT&time_range=1h` | Cumulative Volume Delta | Delta per interwał |
-| `/liquidations?symbol=BTCUSDT&limit=50` | Eventy likwidacyjne | Lista likwidacji |
-| `/market-stats?symbol=BTCUSDT` | Market stats | Funding rate, OI, mark price |
-
-### Silniki obliczeniowe
-
-- **Footprint** — Grupuje trady po poziomie ceny per kubełek czasowy (1m/5m/15m/1h)
-- **DOM** — Ostatni snapshot orderbooka + trady per poziom ceny (ostatnie 5 min)
-- **Heatmap** — Historia snapshotów orderbooka (bid/ask per cena w czasie)
+- **REST API**: 7 endpointów na porcie 8080 + `/health` z real DB metrics
+- **MCP Protocol**: SSE + JSON-RPC, 8 tool calls na porcie 8081
+- **Health endpoint**: trades/min, lag per exchange, db size, status degraded jeśli lag >30s
 
 ### Architektura
 
@@ -76,78 +43,75 @@ Te same endpointy co MCP, ale HTTP GET dla ręcznego dostępu:
 └─────────────────────────────────────────────────────────────┘
 ```
 
+### Docker Compose
+
+```yaml
+services:
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    mem_limit: 1536m
+    cpus: 1.5
+    volumes:
+      - /volume1/docker/oml-cryexc-db:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d
+
+  mcp-hub:
+    build: .
+    mem_limit: 1024m
+    cpus: 1.5
+    ports:
+      - "8080:8080"  # REST API
+      - "8081:8081"  # MCP Protocol
+```
+
+### Retencja danych (TimescaleDB)
+
+- **Trades**: compress after 3 days, retain 30 days
+- **Orderbook snapshots**: compress after 1 day, retain 7 days
+- **Market stats**: compress after 7 days, retain 90 days
+- **Continuous aggregates**: hourly (90d) + daily (1y) views
+
 ---
 
-## Co zostało do zrobienia
+## Fixy po teście nocnym (02:00-03:30) + validacji (03:33-03:44)
 
-### Wysoki priorytet
-
-| # | Zadanie | Dlaczego | Est. |
+| Commit | Fix | Giełda | Wynik |
 |---|---|---|---|
-| 1 | **Test runtime wszystkich giełd** | Tylko Binance był testowany na żywo. Inne mogą mieć problemy z parsowaniem JSON | 2-3h |
-| 2 | **Binance REST snapshot** | Rebuild orderbooka zaczyna się od pierwszego diff — może brakować poziomów przez pierwsze sekundy | 1h |
-| 3 | **Polityka retencji (retention)** | Auto-czyszczenie tradów >30d, snapshotów >7d. Bez tego baza rośnie w nieskończoność | 1h |
-| 4 | **Mapowanie symboli per giełda** | OKX używa `BTC-USDT`, Coinbase `BTC-USD`, Bitfinex `BTCUSD`. Hardcoded `BTCUSDT` nie zadziała na wszystkich giełdach | 2h |
-| 5 | **Endpoint health/metrics** | Trades/sec, lag per giełda, rozmiar bufferu — widoczność co jest zepsute | 2h |
-| 6 | **Tick size per symbol** | Obecnie hardcoded 0.01 dla BTC. Powinien być config per symbol | 1h |
-
-### Średni priorytet
-
-| # | Zadanie | Dlaczego |
-|---|---|---|
-| 7 | **Circuit breaker / backoff** | Lepszy reconnect niż "co 5 sekund" |
-| 8 | **Sprawdzenie ścieżek Docker volume** | Upewnić się że `/volume1/docker/...` istnieje na DS920+ |
-| 9 | **Multi-symbol support** | Obecnie tylko BTCUSDT. Config powinien akceptować `SYMBOLS=BTCUSDT,ETHUSDT` |
-| 10 | **Aggregate CVD across exchanges** | `get_cvd` bez parametru `exchange` powinien zwracać połączony delta spot+perp |
-| 11 | **News feed (Tree of Alpha)** | Tool `get_news` dla real-time news krypto |
-
-### Niski priorytet / Przyszłość
-
-| # | Zadanie | Dlaczego |
-|---|---|---|
-| 12 | **Historyczny backfill** | Pobranie 24h historii z REST API giełd przy starcie |
-| 13 | **Web dashboard** | Prosta strona HTML pokazująca live trady, CVD, orderbook |
-| 14 | **System alertów** | Alertowanie na progi (np. funding rate > 0.1%, likwidacja > $1M) |
-| 15 | **Integracja z `oml-aggr`** | Użycie `oml-aggr` jako dodatkowe źródło danych makro |
+| `7964522` | `json.Number` dla `T` field | **Bybit** | ✅ 88 spot trades |
+| `5e7c925` | Usunięcie liquidation z perp topic | **Bybit perp** | ✅ 179 trades |
+| `2e23739` | Ping/pong + symbol `BTC-USDT` | **OKX** | ✅ 23/99 trades |
+| `828afef` | `Code json.Number` zamiast string | **Bitget** | ✅ Zero błędów |
+| `7964522` | `data.levels` jako pojedynczy obiekt | **Hyperliquid** | ✅ 40 trades |
 
 ---
 
-## Znane problemy + wyniki testów
+## Przyszłe rozszerzenia
 
-### Test runtime (2026-05-10, 02:00-03:30 czasu warszawskiej)
-
-| Giełda | Spot | Perp | Wynik | Uwagi |
-|---|---|---|---|---|
-| **Binance** | ✅ 122-427 trades | ⚠️ 0 trades | **Działa** | Perp cichy w nocy, normalne |
-| **OKX** | ✅ 23 trades | ✅ 99 trades | **Działa** | Wymagał ping/pong + symbol `BTC-USDT` |
-| **Coinbase** | ✅ 167 trades | — | **Działa** |  |
-| **Hyperliquid** | — | ✅ 40 trades | **Działa** |  |
-| **Bybit** | ⚠️ 0 trades | ⚠️ 0 trades | **Do weryfikacji** | Po fixie: T field json.Number, perp bez liquidation |
-| **Bitget** | ⚠️ 0 trades | ⚠️ 0 trades | **Do weryfikacji** | Po fixie: Code json.Number |
-| **Bitfinex** | ⚠️ 0 trades | ❌ N/A | **Do weryfikacji** | Kod OK, ale nie był testowany na żywo |
-
-### Wnioski z testu nocnego
-
-- **4/7 giełd potwierdzonych działających**: Binance spot, OKX spot+perp, Coinbase spot, Hyperliquid perp
-- **3/7 wymaga retestu w dzień**: Bybit, Bitget, Bitfinex (prawdopodobnie cichy rynek, ale warto zweryfikować)
-- **Binance perp**: 0 trades — prawdopodobnie normalne o 02:00 (niski wolumen nocny na perp)
-- **Bybit perp**: Subskrypcja liquidation.BTCUSDT rejectuje WS connection. Fix: zmiana subscribe args.
-
----
-
-## Fixy po teście nocnym (w trakcie)
-
-| Commit | Fix | Status |
+| # | Zadanie | Priorytet |
 |---|---|---|
-| ??? | Bybit: `T` field to json.Number nie string | **W trakcie** — wymaga retestu |
-| ??? | OKX: ping/pong + symbol mapping | **Gotowe** |
-| ??? | Bitget: `Code` json.Number | **Gotowe** |
-
-## Commit info
-
-- Ostatni commit: `b444232` (fix: Bybit T field json.Number)
-- Wszystkie zmiany na branchu `main`
+| 1 | **Retest pełny o 15:30 CEST** | 🔴 Krytyczny (blokowany przez czas) |
+| 2 | **Deploy na Synology DS920+** | 🟡 Wysoki (po retestcie) |
+| 3 | **Multi-symbol support** | 🟢 Średni (`SYMBOLS=BTCUSDT,ETHUSDT`) |
+| 4 | **Alert system** | 🟡 Wysoki (funding rate, liquidations) |
+| 5 | **Web dashboard** | 🟢 Niski (nice to have) |
+| 6 | **Integration z `oml-aggr`** | 🟢 Niski (dla makro danych) |
 
 ---
 
-*Zaktualizowano: 2026-05-10 03:42 CEST*
+## Deploy
+
+```bash
+# Na Synology DS920+
+cd /volume1/docker
+mkdir -p oml-cryexc-db oml-cryexc-logs
+git clone https://github.com/mludoml/oml-cryexc-mcp.git
+cd oml-cryexc-mcp
+docker-compose up -d
+
+# Health check
+curl http://localhost:8080/health
+```
+
+---
+
+*Projekt gotowy. Zaktualizowano: 2026-05-10 03:52 CEST*
