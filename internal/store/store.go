@@ -26,6 +26,10 @@ func (s *Store) Close() {
 	s.pool.Close()
 }
 
+func (s *Store) Pool() *pgxpool.Pool {
+	return s.pool
+}
+
 func (s *Store) InsertTrade(ctx context.Context, t exchange.Trade) error {
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO trades (time, exchange, symbol, market_type, price, qty, quote_qty, side, is_buyer_maker, is_liquidation, trade_id)
@@ -38,7 +42,6 @@ func (s *Store) InsertTradesBatch(ctx context.Context, trades []exchange.Trade) 
 	if len(trades) == 0 {
 		return nil
 	}
-	
 	batch := &pgx.Batch{}
 	for _, t := range trades {
 		batch.Queue(`
@@ -46,10 +49,8 @@ func (s *Store) InsertTradesBatch(ctx context.Context, trades []exchange.Trade) 
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		`, t.Timestamp, t.Exchange, t.Symbol, t.MarketType, t.Price, t.Qty, t.QuoteQty, t.Side, t.IsBuyerMaker, t.IsLiquidation, t.TradeID)
 	}
-	
 	br := s.pool.SendBatch(ctx, batch)
 	defer br.Close()
-	
 	for i := 0; i < len(trades); i++ {
 		if _, err := br.Exec(); err != nil {
 			slog.Warn("batch insert trade error", "index", i, "err", err)
@@ -66,10 +67,8 @@ func (s *Store) InsertOrderbookSnapshot(ctx context.Context, ob exchange.Orderbo
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		`, ob.Timestamp, ob.Exchange, ob.Symbol, ob.MarketType, ob.TickSize, lvl.Price, lvl.BidQty, lvl.AskQty)
 	}
-	
 	br := s.pool.SendBatch(ctx, batch)
 	defer br.Close()
-	
 	for i := 0; i < len(ob.Levels); i++ {
 		if _, err := br.Exec(); err != nil {
 			slog.Warn("batch insert ob error", "index", i, "err", err)

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"oml-cryexc-mcp/internal/compute"
 	"oml-cryexc-mcp/internal/store"
 )
 
@@ -33,6 +34,9 @@ func (m *Server) registerRoutes() {
 	m.mux.HandleFunc("/market-stats", m.handleMarketStats)
 	m.mux.HandleFunc("/cvd", m.handleCVD)
 	m.mux.HandleFunc("/orderbook/latest", m.handleLatestOrderbook)
+	m.mux.HandleFunc("/footprint", m.handleFootprint)
+	m.mux.HandleFunc("/dom", m.handleDOM)
+	m.mux.HandleFunc("/heatmap", m.handleHeatmap)
 }
 
 func (m *Server) Start(addr string) error {
@@ -202,6 +206,124 @@ func (m *Server) handleLatestOrderbook(w http.ResponseWriter, r *http.Request) {
 	
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(ob)
+}
+
+func (m *Server) handleFootprint(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	symbol := q.Get("symbol")
+	if symbol == "" {
+		symbol = "BTCUSDT"
+	}
+	exchange := q.Get("exchange")
+	marketType := q.Get("market_type")
+	tickSizeStr := q.Get("tick_size")
+	tickSize := 1.0
+	if tickSizeStr != "" {
+		tickSize, _ = strconv.ParseFloat(tickSizeStr, 64)
+	}
+	if tickSize == 0 {
+		tickSize = 1.0
+	}
+	intervalStr := q.Get("interval")
+	interval := time.Minute
+	if intervalStr != "" {
+		interval, _ = parseDuration(intervalStr)
+	}
+	if interval == 0 {
+		interval = time.Minute
+	}
+	since := time.Now().Add(-1 * time.Hour)
+	sinceStr := q.Get("since")
+	if sinceStr != "" {
+		since, _ = time.Parse(time.RFC3339, sinceStr)
+	}
+
+	candles, err := compute.ComputeFootprint(r.Context(), m.store.Pool(), symbol, exchange, marketType, tickSize, interval, since)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"symbol":   symbol,
+		"exchange": exchange,
+		"tick_size": tickSize,
+		"interval":  interval.String(),
+		"candles":  candles,
+	})
+}
+
+func (m *Server) handleDOM(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	symbol := q.Get("symbol")
+	if symbol == "" {
+		symbol = "BTCUSDT"
+	}
+	exchange := q.Get("exchange")
+	if exchange == "" {
+		http.Error(w, "exchange parameter required", http.StatusBadRequest)
+		return
+	}
+	marketType := q.Get("market_type")
+	tickSizeStr := q.Get("tick_size")
+	tickSize := 1.0
+	if tickSizeStr != "" {
+		tickSize, _ = strconv.ParseFloat(tickSizeStr, 64)
+	}
+	if tickSize == 0 {
+		tickSize = 1.0
+	}
+
+	dom, err := compute.ComputeDOM(r.Context(), m.store.Pool(), symbol, exchange, marketType, tickSize, time.Now().Add(-5*time.Minute))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(dom)
+}
+
+func (m *Server) handleHeatmap(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	symbol := q.Get("symbol")
+	if symbol == "" {
+		symbol = "BTCUSDT"
+	}
+	exchange := q.Get("exchange")
+	if exchange == "" {
+		http.Error(w, "exchange parameter required", http.StatusBadRequest)
+		return
+	}
+	marketType := q.Get("market_type")
+	tickSizeStr := q.Get("tick_size")
+	tickSize := 1.0
+	if tickSizeStr != "" {
+		tickSize, _ = strconv.ParseFloat(tickSizeStr, 64)
+	}
+	if tickSize == 0 {
+		tickSize = 1.0
+	}
+	since := time.Now().Add(-1 * time.Hour)
+	sinceStr := q.Get("since")
+	if sinceStr != "" {
+		since, _ = time.Parse(time.RFC3339, sinceStr)
+	}
+
+	heatmap, err := compute.ComputeHeatmap(r.Context(), m.store.Pool(), symbol, exchange, marketType, tickSize, since)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"symbol":   symbol,
+		"exchange": exchange,
+		"tick_size": tickSize,
+		"rows":     heatmap,
+	})
 }
 
 func parseDuration(s string) (time.Duration, error) {
