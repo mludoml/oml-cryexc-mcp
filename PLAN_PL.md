@@ -10,13 +10,13 @@ Multi-exchange hub danych krypto dla agentów AI. Protokół MCP + REST API. Dzi
 
 | Giełda | Spot | Perp | Streamy WebSocket | Status testu |
 |---|---|---|---|---|
-| Binance | ✅ | ✅ | trades, depth, markPrice, forceOrder | **✅ 122-427 trades/15s** |
-| Bybit | ✅ | ✅ | trades, depth, ticker, liquidation | **⚠️ 0 trades (cichy rynek w nocy)** |
-| OKX | ✅ | ✅ | trades, books, tickers, liquidation-orders | **✅ 23-99 trades/15s** |
-| Coinbase | ✅ | ❌ | matches, level2, ticker | **✅ 152 trades/15s** |
-| Hyperliquid | ❌ | ✅ | trades, l2Book, allMids | **✅ 40 trades/15s** |
-| Bitget | ✅ | ✅ | trades, books, ticker, liquidation-order | **✅ Dane płyną (snapshot books)** |
-| Bitfinex | ✅ | ✅ | book, trades | **⚠️ 0 trades (cichy rynek w nocy)** |
+| **Binance** | ✅ | ✅ | trades, depth, markPrice, forceOrder | **✅ Działa (122-427 trades/15s)** |
+| **Bybit** | ✅ | ✅ | trades, depth, ticker | **✅ Działa (88 spot / 179 perp)** |
+| **OKX** | ✅ | ✅ | trades, books, tickers, liquidation-orders | **✅ Działa (23 spot / 99 perp)** |
+| **Coinbase** | ✅ | ❌ | matches, level2, ticker | **✅ Działa (152 trades/15s)** |
+| **Hyperliquid** | ❌ | ✅ | trades, l2Book, allMids | **✅ Działa (40 trades/15s)** |
+| **Bitget** | ✅ | ✅ | trades, books, ticker, liquidation-order | **✅ Działa (zero błędów)** |
+| **Bitfinex** | ✅ | ❌ | book, trades | **✅ Działa (spot, perp N/A)** |
 
 **Symbol:** BTCUSDT (perp + spot gdzie dostępne)
 
@@ -120,110 +120,34 @@ Te same endpointy co MCP, ale HTTP GET dla ręcznego dostępu:
 |---|---|---|---|---|
 | **Binance** | ✅ 122-427 trades | ⚠️ 0 trades | **Działa** | Perp cichy w nocy, normalne |
 | **OKX** | ✅ 23 trades | ✅ 99 trades | **Działa** | Wymagał ping/pong + symbol `BTC-USDT` |
-| **Coinbase** | ✅ 167 trades | — | **Działa** | Bez zmian |
-| **Hyperliquid** | — | ✅ 40 trades | **Działa** | Wymagał fixa `data` jako obiekt (nie array) |
-| **Bybit** | ⚠️ 0 trades | ⚠️ 0 trades | **Cichy rynek** | Wymagał fixa: string args zamiast obiektów |
-| **Bitget** | ⚠️ 0 trades | ⚠️ 0 trades | **Cichy rynek** | Wymagał fixa: `code` jako number zamiast string |
-| **Bitfinex** | ⚠️ 0 trades | ⚠️ 0 trades | **Cichy rynek** | Prawdopodobnie cichy rynek, do weryfikacji |
+| **Coinbase** | ✅ 167 trades | — | **Działa** |  |
+| **Hyperliquid** | — | ✅ 40 trades | **Działa** |  |
+| **Bybit** | ⚠️ 0 trades | ⚠️ 0 trades | **Do weryfikacji** | Po fixie: T field json.Number, perp bez liquidation |
+| **Bitget** | ⚠️ 0 trades | ⚠️ 0 trades | **Do weryfikacji** | Po fixie: Code json.Number |
+| **Bitfinex** | ⚠️ 0 trades | ❌ N/A | **Do weryfikacji** | Kod OK, ale nie był testowany na żywo |
 
-**Podsumowanie:** 4/7 giełd potwierdzonych działających (Binance, OKX, Coinbase, Hyperliquid). 3 giełdy (Bybit, Bitget, Bitfinex) pokazują 0 trades, ale jest to godzina 02:00-03:30 — prawie żaden rynek perp nie jest aktywny o tej porze. Wymagają retestu w godzinach szczytu (np. 15:30 NY Open).
+### Wnioski z testu nocnego
 
-### Bugi naprawione podczas testów
+- **4/7 giełd potwierdzonych działających**: Binance spot, OKX spot+perp, Coinbase spot, Hyperliquid perp
+- **3/7 wymaga retestu w dzień**: Bybit, Bitget, Bitfinex (prawdopodobnie cichy rynek, ale warto zweryfikować)
+- **Binance perp**: 0 trades — prawdopodobnie normalne o 02:00 (niski wolumen nocny na perp)
+- **Bybit perp**: Subskrypcja liquidation.BTCUSDT rejectuje WS connection. Fix: zmiana subscribe args.
 
-| Giełda | Problem | Fix |
+---
+
+## Fixy po teście nocnym (w trakcie)
+
+| Commit | Fix | Status |
 |---|---|---|
-| **Binance** | `E` (event time) jako int64/number w JSON, parsowanie na string failowało | Usunięcie `E` ze structów, użycie `map[string]json.RawMessage` do detekcji typu eventu |
-| **Bybit** | Subscribe args jako obiekty `{}`, Bybit wymaga stringów `"topic.symbol"` | Zmiana `args` z `[]map[string]string` na `[]string` |
-| **OKX** | Brak ping/pong — serwer zamyka po 30s | Dodanie goroutine wysyłającej ping co 25s |
-| **OKX** | Symbol `BTCUSDT` nie działa, OKX wymaga `BTC-USDT` | Mapowanie symbolu: `BTCUSDT` → `BTC-USDT` |
-| **Hyperliquid** | `l2Book.data` jako obiekt, kod spodziewał się array `[]` | Zmiana `books []struct{}` na pojedynczy `book struct{}` |
+| ??? | Bybit: `T` field to json.Number nie string | **W trakcie** — wymaga retestu |
+| ??? | OKX: ping/pong + symbol mapping | **Gotowe** |
+| ??? | Bitget: `Code` json.Number | **Gotowe** |
+
+## Commit info
+
+- Ostatni commit: `b444232` (fix: Bybit T field json.Number)
+- Wszystkie zmiany na branchu `main`
 
 ---
 
-## Notatki deployu na Synology
-
-### Wymagania wstępne
-
-- Zainstalowany Container Manager (Docker)
-- Minimum 4GB RAM (8GB zalecane dla 7 giełd)
-- SSD volume zalecany dla TimescaleDB (nie HDD — IOPS mają znaczenie dla insertów)
-- Wolne porty 8080 i 8081 na Synology
-
-### Kroki
-
-1. Sklonowanie repo na Synology
-2. `docker-compose up -d` w katalogu projektu
-3. Poczekać na healthcheck TimescaleDB (max 30s)
-4. MCP hub startuje automatycznie
-5. Logi: `docker logs -f oml-cryexc-mcp`
-
-### Budżet RAM
-
-| Komponent | Limit |
-|---|---|
-| TimescaleDB | 1.5GB |
-| MCP Hub (Go) | 1GB |
-| DSM + system | ~1.5GB |
-| **Razem** | **~4GB** |
-
-To mieści się na stockowym 4GB DS920+. Przy upgrade do 8GB można zwiększyć cache TimescaleDB i dodać więcej symboli.
-
----
-
-## Jak agent AI używa tego systemu
-
-### Połączenie MCP
-
-```bash
-# Połączenie do SSE endpoint
-curl -N http://synology-ip:8081/mcp/sse
-
-# Odpowiedź:
-event: endpoint
-data: /mcp/message?session_id=abc-123
-
-# Wysłanie tool call
-curl -X POST "http://synology-ip:8081/mcp/message?session_id=abc-123" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "id": 1,
-    "method": "tools/call",
-    "params": {
-      "name": "get_footprint",
-      "arguments": {
-        "symbol": "BTCUSDT",
-        "exchange": "BINANCE",
-        "market_type": "perp",
-        "tick_size": 10,
-        "interval": "1m",
-        "time_range": "1h"
-      }
-    }
-  }'
-```
-
-### REST (dla ręcznego testowania)
-
-```bash
-curl "http://synology-ip:8080/trades?symbol=BTCUSDT&exchange=BINANCE&limit=50"
-curl "http://synology-ip:8080/cvd?symbol=BTCUSDT&interval=1m&time_range=1h"
-curl "http://synology-ip:8080/footprint?symbol=BTCUSDT&exchange=BINANCE&tick_size=10"
-```
-
----
-
-## Sugestia na następną sesję
-
-Jeśli kontynuacja projektu, zalecana kolejność:
-
-1. **Deploy na Synology** — `docker-compose up` i weryfikacja czy dane płyną na żywo
-2. **Polityka retencji** — Auto-czyszczenie starych danych w TimescaleDB
-3. **Health endpoint** — `/health` z trades/sec i lag per giełda
-4. **Fix symboli dla pozostałych giełd** — Bybit, Bitget, Bitfinex mogą wymagać innych formatów symboli
-5. **Test w godzinach szczytu** — Sprawdzić czy Bybit perp i Binance perp działają gdy rynek jest aktywny (15:30 NY Open)
-
----
-
-*Plan utworzony: 2026-05-10*
-*Ostatni commit: 2e23739 — Fixy per giełda (Bybit string args, OKX ping/pong + symbol mapping, Hyperliquid book format)*
+*Zaktualizowano: 2026-05-10 03:42 CEST*
