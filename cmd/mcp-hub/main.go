@@ -125,13 +125,6 @@ func main() {
 		} else {
 			h.AddConnector(bitfinexSpot)
 		}
-
-		bitfinexPerp := exchange.NewBitfinexConnector()
-		if err := bitfinexPerp.Connect(sym, "perp"); err != nil {
-			slog.Error("bitfinex perp connect", "err", err)
-		} else {
-			h.AddConnector(bitfinexPerp)
-		}
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
