@@ -211,33 +211,28 @@ func (b *BybitConnector) handleMessage(msg []byte) error {
 }
 
 func (b *BybitConnector) handleTrade(data []byte) error {
-	var trades struct {
-		Data []struct {
-			T string `json:"T"`
-			s string `json:"s"`
-			V string `json:"v"`
-			P string `json:"p"`
-			L string `json:"L"`
-			I string `json:"i"`
-			BT bool   `json:"BT"`
-		} `json:"data"`
+	var trades []struct {
+		T  string `json:"T"`
+		S  string `json:"s"`
+		V  string `json:"v"`
+		P  string `json:"p"`
+		L  string `json:"L"`
+		I  string `json:"i"`
+		BT bool   `json:"BT"`
 	}
 	if err := json.Unmarshal(data, &trades); err != nil {
 		return err
 	}
-
-	for _, t := range trades.Data {
+	for _, t := range trades {
 		price, _ := strconv.ParseFloat(t.P, 64)
 		qty, _ := strconv.ParseFloat(t.V, 64)
 		if price == 0 || qty == 0 {
 			continue
 		}
-
 		side := strings.ToLower(t.L)
 		if side == "" {
 			side = "buy"
 		}
-
 		trade := Trade{
 			Exchange:     b.name,
 			Symbol:       b.symbol,
@@ -250,7 +245,6 @@ func (b *BybitConnector) handleTrade(data []byte) error {
 			Timestamp:    time.Now(),
 			TradeID:      t.I,
 		}
-
 		if b.onTrade != nil {
 			b.onTrade(trade)
 		}
