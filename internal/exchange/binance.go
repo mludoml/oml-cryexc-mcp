@@ -39,8 +39,8 @@ type BinanceConnector struct {
 }
 
 type binanceOrderbook struct {
-	lastUpdateID int64
-	bids         map[string]float64 // price -> qty
+	lastUpdateID float64
+	bids         map[string]float64
 	asks         map[string]float64
 	mu           sync.RWMutex
 }
@@ -182,22 +182,25 @@ func (b *BinanceConnector) handleMessage(msg []byte) error {
 		Data   json.RawMessage `json:"data"`
 	}
 	if err := json.Unmarshal(msg, &wrapper); err != nil {
-		// Try single message (non-combined stream)
 		return b.handleSingleMessage(msg)
 	}
 	return b.handleSingleMessage(wrapper.Data)
 }
 
 func (b *BinanceConnector) handleSingleMessage(data []byte) error {
-	// Detect message type
-	var typeDetect struct {
-		E string `json:"e"` // event type
-	}
+	var typeDetect map[string]json.RawMessage
 	if err := json.Unmarshal(data, &typeDetect); err != nil {
 		return err
 	}
 	
-	switch typeDetect.E {
+	eventType := ""
+	if eVal, ok := typeDetect["e"]; ok {
+		var eStr string
+		json.Unmarshal(eVal, &eStr)
+		eventType = eStr
+	}
+
+	switch eventType {
 	case "trade", "aggTrade":
 		return b.handleTrade(data)
 	case "depthUpdate":
@@ -207,16 +210,16 @@ func (b *BinanceConnector) handleSingleMessage(data []byte) error {
 	case "forceOrder":
 		return b.handleLiquidation(data)
 	case "24hrTicker":
-		// ticker has no "e" field in some versions, skip for now
 		return nil
 	default:
-		// Try ticker detection by fields
-		var tickerDetect struct {
-			C string `json:"c"` // last price
-			V string `json:"v"` // volume
-		}
-		if err := json.Unmarshal(data, &tickerDetect); err == nil && tickerDetect.C != "" {
-			return nil // skip ticker for now
+		if eventType == "" {
+			var tickerDetect struct {
+				C string `json:"c"`
+				V string `json:"v"`
+			}
+			if err := json.Unmarshal(data, &tickerDetect); err == nil && tickerDetect.C != "" {
+				return nil
+			}
 		}
 		return nil
 	}
@@ -224,13 +227,12 @@ func (b *BinanceConnector) handleSingleMessage(data []byte) error {
 
 func (b *BinanceConnector) handleTrade(data []byte) error {
 	var t struct {
-		E string `json:"E"` // event time
-		S string `json:"s"` // symbol
-		P string `json:"p"` // price
-		Q string `json:"q"` // qty
-		M bool   `json:"m"` // is buyer maker
-		A int64  `json:"a"` // agg trade id (perp)
-		T int64  `json:"T"` // trade time
+		S string  `json:"s"`
+		P string  `json:"p"`
+		Q string  `json:"q"`
+		M bool    `json:"m"`
+		A float64 `json:"a"`
+		T float64 `json:"T"`
 	}
 	if err := json.Unmarshal(data, &t); err != nil {
 		return err
@@ -253,7 +255,7 @@ func (b *BinanceConnector) handleTrade(data []byte) error {
 		QuoteQty:     price * qty,
 		Side:         side,
 		IsBuyerMaker: t.M,
-		Timestamp:    time.Unix(0, t.T*1e6),
+		Timestamp:    time.Now(),
 	}
 	
 	if b.onTrade != nil {
@@ -264,13 +266,12 @@ func (b *BinanceConnector) handleTrade(data []byte) error {
 
 func (b *BinanceConnector) handleDepthUpdate(data []byte) error {
 	var d struct {
-		E  string     `json:"E"`
 		S  string     `json:"s"`
-		U  int64      `json:"U"`  // first update id
-		UF int64      `json:"u"`  // final update id
-		Pu int64      `json:"pu"` // previous update id
-		B  [][2]string `json:"b"` // bids [price, qty]
-		A  [][2]string `json:"a"` // asks [price, qty]
+		U  float64    `json:"U"`
+		UF float64    `json:"u"`
+		Pu float64    `json:"pu"`
+		B  [][2]string `json:"b"`
+		A  [][2]string `json:"a"`
 	}
 	if err := json.Unmarshal(data, &d); err != nil {
 		return err
@@ -313,12 +314,11 @@ func (b *BinanceConnector) handleDepthUpdate(data []byte) error {
 
 func (b *BinanceConnector) handleMarkPrice(data []byte) error {
 	var mp struct {
-		E string `json:"E"`
 		S string `json:"s"`
-		P string `json:"p"` // mark price
-		I string `json:"i"` // index price
-		r string `json:"r"` // funding rate
-		T int64  `json:"T"` // next funding time
+		P string `json:"p"`
+		I string `json:"i"`
+		r string `json:"r"`
+		T float64  `json:"T"`
 	}
 	if err := json.Unmarshal(data, &mp); err != nil {
 		return err
@@ -335,7 +335,7 @@ func (b *BinanceConnector) handleMarkPrice(data []byte) error {
 		MarkPrice:       markPrice,
 		IndexPrice:      indexPrice,
 		FundingRate:     fundingRate,
-		NextFundingTime: time.Unix(0, mp.T*1e6),
+		NextFundingTime: time.Unix(int64(mp.T/1000), 0),
 		Timestamp:       time.Now(),
 	}
 	
