@@ -49,7 +49,7 @@ func NewBitfinexConnector() *BitfinexConnector {
 }
 
 func (bf *BitfinexConnector) Name() string              { return bf.name }
-func (bf *BitfinexConnector) MarketTypes() []string { return []string{"spot", "perp"} }
+func (bf *BitfinexConnector) MarketTypes() []string { return []string{"spot"} }
 
 func (bf *BitfinexConnector) OnTrade(cb func(Trade))                        { bf.onTrade = cb }
 func (bf *BitfinexConnector) OnOrderbookSnapshot(cb func(OrderbookSnapshot)) { bf.onOrderbookSnapshot = cb }
