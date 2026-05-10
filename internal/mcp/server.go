@@ -52,7 +52,35 @@ func (m *Server) Stop(ctx context.Context) error {
 }
 
 func (m *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	ctx := r.Context()
+	since := time.Now().Add(-1 * time.Minute)
+
+	metrics, err := m.store.GetMetrics(ctx, since)
+	if err != nil {
+		slog.Warn("health metrics error", "err", err)
+		// fallback to basic ok
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		return
+	}
+
+	// Determine overall status: degraded if any exchange >30s lag
+	status := "ok"
+	for ex, lag := range metrics.ExchangeLag {
+		if lag > 30*time.Second {
+			status = "degraded"
+			slog.Warn("exchange lag high", "exchange", ex, "lag", lag)
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":                  status,
+		"timestamp":               time.Now().UTC(),
+		"trades_last_minute":      metrics.TradesLastMin,
+		"liquidations_last_minute": metrics.LiquidationsLastMin,
+		"exchange_lag_seconds":    metrics.ExchangeLag,
+		"db_size":                 metrics.DBSize,
+	})
 }
 
 func (m *Server) handleTrades(w http.ResponseWriter, r *http.Request) {
