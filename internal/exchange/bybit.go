@@ -212,13 +212,13 @@ func (b *BybitConnector) handleMessage(msg []byte) error {
 
 func (b *BybitConnector) handleTrade(data []byte) error {
 	var trades []struct {
-		T  string `json:"T"`
-		S  string `json:"s"`
-		V  string `json:"v"`
-		P  string `json:"p"`
-		L  string `json:"L"`
-		I  string `json:"i"`
-		BT bool   `json:"BT"`
+		T  json.Number `json:"T"`
+		S  string      `json:"s"`
+		V  string      `json:"v"`
+		P  string      `json:"p"`
+		L  string      `json:"L"`
+		I  string      `json:"i"`
+		BT bool        `json:"BT"`
 	}
 	if err := json.Unmarshal(data, &trades); err != nil {
 		return err

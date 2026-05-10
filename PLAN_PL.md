@@ -39,7 +39,17 @@ Agent łączy się przez SSE (`GET /mcp/sse`), potem wysyła JSON-RPC `tools/cal
 
 ### REST API (port 8080)
 
-Te same endpointy co MCP, ale HTTP GET dla ręcznego dostępu.
+Te same endpointy co MCP, ale HTTP GET dla ręcznego dostępu:
+
+| Endpoint | Opis | Przykład odpowiedzi |
+|---|---|---|
+| `/health` | Status hub + metryki z bazy | `{"status": "ok", "trades_last_minute": 142, "exchange_lag_seconds": {"BINANCE": "2.1s"}, "db_size": "1.2 GB"}` |
+| `/trades?symbol=BTCUSDT&limit=100` | Ostatnie trady | Lista trade'ów per exchange |
+| `/orderbook/latest?exchange=BINANCE` | Aktualny snapshot orderbooka | Poziomy bid/ask |
+| `/footprint?symbol=BTCUSDT&resolution=1m` | Wolumen per cena | Footprint świeca |
+| `/cvd?symbol=BTCUSDT&time_range=1h` | Cumulative Volume Delta | Delta per interwał |
+| `/liquidations?symbol=BTCUSDT&limit=50` | Eventy likwidacyjne | Lista likwidacji |
+| `/market-stats?symbol=BTCUSDT` | Market stats | Funding rate, OI, mark price |
 
 ### Silniki obliczeniowe
 
