@@ -153,12 +153,12 @@ func (bg *BitgetConnector) connectAndStream() error {
 
 func (bg *BitgetConnector) handleMessage(msg []byte) error {
 	var wrapper struct {
-		Event  string          `json:"event"`
+		Event  string            `json:"event"`
 		Arg    map[string]string `json:"arg"`
-		Data   json.RawMessage `json:"data"`
-		Action string          `json:"action"`
-		Code   string          `json:"code"`
-		Msg    string          `json:"msg"`
+		Data   json.RawMessage   `json:"data"`
+		Action string            `json:"action"`
+		Code   json.Number       `json:"code"`
+		Msg    string            `json:"msg"`
 	}
 	if err := json.Unmarshal(msg, &wrapper); err != nil {
 		return err

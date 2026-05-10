@@ -1,0 +1,23 @@
+# Binaries
+main
+test
+mcp-hub
+*.exe
+
+# Go build artifacts
+*.test
+*.out
+
+# Environment
+.env
+
+# Data volumes (Docker)
+volumes/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
