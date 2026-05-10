@@ -219,18 +219,14 @@ func (h *HyperliquidConnector) handleTrade(data interface{}) error {
 }
 
 func (h *HyperliquidConnector) handleL2Book(data interface{}) error {
-	var books []struct {
-		Coin string `json:"coin"`
+	var book struct {
+		Coin   string     `json:"coin"`
 		Levels [][]string `json:"levels"`
 	}
 	raw, _ := json.Marshal(data)
-	if err := json.Unmarshal(raw, &books); err != nil {
+	if err := json.Unmarshal(raw, &book); err != nil {
 		return err
 	}
-	if len(books) == 0 {
-		return nil
-	}
-	book := books[0]
 	if book.Coin != h.coin {
 		return nil
 	}

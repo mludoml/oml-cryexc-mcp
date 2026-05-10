@@ -61,6 +61,9 @@ func (o *OKXConnector) Connect(symbol, marketType string) error {
 	o.symbol = strings.ToUpper(symbol)
 	o.marketType = marketType
 	o.orderbooks[marketType] = &okxOrderbook{bids: make(map[string]float64), asks: make(map[string]float64)}
+	if o.symbol == "BTCUSDT" {
+		o.symbol = "BTC-USDT"
+	}
 	if marketType == "spot" {
 		o.instID = o.symbol
 	} else {
@@ -124,6 +127,7 @@ func (o *OKXConnector) connectAndStream() error {
 	if err := ws.WriteJSON(map[string]interface{}{"op": "subscribe", "args": args}); err != nil {
 		return fmt.Errorf("subscribe: %w", err)
 	}
+	go o.pingLoop(ws)
 
 	for {
 		select {
@@ -354,6 +358,21 @@ func (o *OKXConnector) handleLiquidation(data []byte) error {
 		}
 	}
 	return nil
+}
+
+func (o *OKXConnector) pingLoop(ws *websocket.Conn) {
+	ticker := time.NewTicker(25 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-o.ctx.Done():
+			return
+		case <-ticker.C:
+			if err := ws.WriteJSON(map[string]string{"op": "ping"}); err != nil {
+				return
+			}
+		}
+	}
 }
 
 func (o *OKXConnector) EmitOrderbookSnapshot(tickSize float64) {

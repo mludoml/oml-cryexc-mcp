@@ -123,8 +123,9 @@ func (b *BybitConnector) connectAndStream() error {
 	b.ws = ws
 
 	sub := map[string]interface{}{
-		"op":   "subscribe",
-		"args": b.buildArgs(),
+		"op":      "subscribe",
+		"reqId":   "test-" + b.marketType,
+		"args":    b.buildArgs(),
 	}
 	if err := ws.WriteJSON(sub); err != nil {
 		return fmt.Errorf("subscribe: %w", err)
@@ -149,16 +150,21 @@ func (b *BybitConnector) connectAndStream() error {
 	}
 }
 
-func (b *BybitConnector) buildArgs() []map[string]string {
-	args := []map[string]string{
-		{"channel": "tickers", "symbol": b.symbol},
-		{"channel": "publicTrade", "symbol": b.symbol},
-		{"channel": "orderbook", "symbol": b.symbol},
-	}
+func (b *BybitConnector) buildArgs() []string {
+	sym := b.symbol
 	if b.marketType == "perp" {
-		args = append(args, map[string]string{"channel": "liquidation", "symbol": b.symbol})
+		return []string{
+			"tickers." + sym,
+			"publicTrade." + sym,
+			"orderbook.1." + sym,
+			"liquidation." + sym,
+		}
 	}
-	return args
+	return []string{
+		"tickers." + sym,
+		"publicTrade." + sym,
+		"orderbook.1." + sym,
+	}
 }
 
 func (b *BybitConnector) handleMessage(msg []byte) error {
