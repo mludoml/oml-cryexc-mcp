@@ -157,7 +157,8 @@ func (b *BybitConnector) buildArgs() []string {
 			"tickers." + sym,
 			"publicTrade." + sym,
 			"orderbook.1." + sym,
-			"liquidation." + sym,
+			// NOTE: liquidation topic causes subscription rejection
+			// "liquidation." + sym,
 		}
 	}
 	return []string{
