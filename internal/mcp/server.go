@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"oml-cryexc-mcp/internal/compute"
@@ -324,21 +323,4 @@ func (m *Server) handleHeatmap(w http.ResponseWriter, r *http.Request) {
 		"tick_size": tickSize,
 		"rows":     heatmap,
 	})
-}
-
-func parseDuration(s string) (time.Duration, error) {
-	s = strings.ToLower(s)
-	if strings.HasSuffix(s, "h") {
-		h, err := strconv.Atoi(strings.TrimSuffix(s, "h"))
-		return time.Duration(h) * time.Hour, err
-	}
-	if strings.HasSuffix(s, "m") {
-		m, err := strconv.Atoi(strings.TrimSuffix(s, "m"))
-		return time.Duration(m) * time.Minute, err
-	}
-	if strings.HasSuffix(s, "d") {
-		d, err := strconv.Atoi(strings.TrimSuffix(s, "d"))
-		return time.Duration(d) * 24 * time.Hour, err
-	}
-	return time.ParseDuration(s)
 }

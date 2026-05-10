@@ -3,13 +3,13 @@ version: '3.8'
 services:
   timescaledb:
     image: timescale/timescaledb:latest-pg16
-    container_name: cryexec-db
+    container_name: oml-cryexc-db
     environment:
       POSTGRES_USER: cryexec
       POSTGRES_PASSWORD: cryexec_secret
       POSTGRES_DB: cryexec
     volumes:
-      - /volume1/docker/cryexec-db:/var/lib/postgresql/data
+      - /volume1/docker/oml-cryexc-db:/var/lib/postgresql/data
       - ./migrations:/docker-entrypoint-initdb.d
     ports:
       - "5432:5432"
@@ -33,6 +33,7 @@ services:
       LOG_LEVEL: info
     ports:
       - "8080:8080"
+      - "8081:8081"
     mem_limit: 1024m
     cpus: 1.5
     restart: unless-stopped
@@ -40,4 +41,4 @@ services:
       timescaledb:
         condition: service_healthy
     volumes:
-      - /volume1/docker/cryexec-logs:/app/logs
+      - /volume1/docker/oml-cryexc-logs:/app/logs

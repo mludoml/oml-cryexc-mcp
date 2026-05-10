@@ -145,11 +145,18 @@ func main() {
 	mcpServer := mcp.NewServer(s)
 	go func() {
 		if err := mcpServer.Start(":8080"); err != nil {
+			slog.Error("rest server error", "err", err)
+		}
+	}()
+
+	mcpProtoServer := mcp.NewMCPServer(s)
+	go func() {
+		if err := mcpProtoServer.Start(":8081"); err != nil {
 			slog.Error("mcp server error", "err", err)
 		}
 	}()
 
-	slog.Info("oml-cryexc-mcp started", "symbols", symbols, "mcp", "http://localhost:8080")
+	slog.Info("oml-cryexc-mcp started", "rest", "http://localhost:8080", "mcp", "http://localhost:8081/mcp/sse")
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -161,6 +168,9 @@ func main() {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
 	if err := mcpServer.Stop(shutdownCtx); err != nil {
+		slog.Error("rest shutdown error", "err", err)
+	}
+	if err := mcpProtoServer.Stop(shutdownCtx); err != nil {
 		slog.Error("mcp shutdown error", "err", err)
 	}
 }
