@@ -1,6 +1,8 @@
-RETEST SCHEDULED
+RETEST BLOCKED
 Target: 15:30 CEST (NY Open)
 Command: go run ./cmd/test/main.go
 Condition: Crypto markets must be active
-Status: WAITING
+Status: BLOCKED — waiting for NY Open
+BlockedReason: 12h 4m until market hours
 Created: 2026-05-10T04:00:00+02:00
+Updated: 2026-05-10T04:00:00+02:00
