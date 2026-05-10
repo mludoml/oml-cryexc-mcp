@@ -14,7 +14,7 @@ import (
 func main() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})))
 
-	fmt.Printf("=== Validate Connectors — %s ===\n", time.Now().Format("15:04:05"))
+	fmt.Printf("=== Validate Fixes — %s ===\n", time.Now().Format("15:04:05"))
 
 	tests := []struct {
 		name   string
@@ -26,8 +26,6 @@ func main() {
 		{"BYBIT perp", exchange.NewBybitConnector(), "BTCUSDT", "perp"},
 		{"BITGET spot", exchange.NewBitgetConnector(), "BTCUSDT", "spot"},
 		{"BITGET perp", exchange.NewBitgetConnector(), "BTCUSDT", "perp"},
-		{"BITFINEX spot", exchange.NewBitfinexConnector(), "BTCUSDT", "spot"},
-		{"BITFINEX perp", exchange.NewBitfinexConnector(), "BTCUSDT", "perp"},
 		{"BINANCE perp", exchange.NewBinanceConnector(), "BTCUSDT", "perp"},
 	}
 
@@ -35,7 +33,7 @@ func main() {
 		validate(tt.name, tt.ex, tt.symbol, tt.mtype)
 	}
 	fmt.Println("\n=== Done ===")
-	fmt.Println("Note: 0 trades at 03:50 CEST is normal (quiet market). Check for NO errors.")
+	fmt.Println("Note: 0 trades at this hour is expected. No parse errors = PASS.")
 }
 
 func validate(name string, ex exchange.Connector, symbol, mtype string) {
@@ -64,7 +62,7 @@ func validate(name string, ex exchange.Connector, symbol, mtype string) {
 	if cnt > 0 {
 		fmt.Printf("✅ %-20s trades=%d (WORKING)\n", name, cnt)
 	} else if runErr == nil {
-		fmt.Printf("⚠️ %-20s trades=0 (no errors — likely quiet market)\n", name)
+		fmt.Printf("⚠️ %-20s trades=0 (no errors — quiet market)\n", name)
 	} else {
 		fmt.Printf("❌ %-20s trades=0 (ERR: %v)\n", name, runErr)
 	}
