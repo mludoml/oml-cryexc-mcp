@@ -210,16 +210,16 @@ Bezwzględnie czytaj odpowiadający plik w `oml-aggr/src/exchanges/` jako wzór.
 
 ---
 
-## Faza 6 — Metryki real-time (CVD / delta / liqs)
+## Faza 6 ✅ — Metryki real-time (CVD / delta / liqs)
 
-| # | Plik | Co |
-|---|---|---|
-| 6.1 | `internal/metrics/cvd.go` | sliding window per (`exchange`, `market_type`); window konfigurowalne (default 60s); pola `buyVolume`, `sellVolume`, `delta`, `cvd` (cumulative od startu) |
-| 6.2 | `internal/metrics/liquidations.go` | sliding window long/short liqs (kwota + count) |
-| 6.3 | `internal/metrics/snapshot.go` | snapshot co 1s → publikuje do `WsHub` + (opcjonalnie) do DB jako `metrics_1s` |
-| 6.4 | `internal/metrics/registry.go` | per-exchange + global aggregate |
+| # | Plik | Co | Status |
+|---|---|---|---|
+| 6.1 | `internal/metrics/cvd.go` | sliding window per (`exchange`, `market_type`); window konfigurowalne (default 60s); pola `buyVolume`, `sellVolume`, `delta`, `cvd` (cumulative od startu) | ✅ |
+| 6.2 | `internal/metrics/liquidations.go` | sliding window long/short liqs (kwota + count) | ✅ (zmergowane w `cvd.go`) |
+| 6.3 | `internal/metrics/snapshot.go` | snapshot co 1s → publikuje do `WsHub` + (opcjonalnie) do DB jako `metrics_1s` | ⏸️ do zrobienia w fazie 9 (WS) |
+| 6.4 | `internal/metrics/registry.go` | per-exchange + global aggregate | ✅ |
 
-**Wzór**: `oml-aggr/src/aggregator/metrics.ts` — przepisz 1:1 logikę okna, ale w Go użyj `container/list` lub ring buffera per metric.
+**Definicja użyta**: `[]TradeEvent` z pruningiem (cutoff), NIE `container/list` (overkill dla ~5k ticków/min).
 
 ---
 
