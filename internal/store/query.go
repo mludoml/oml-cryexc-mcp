@@ -9,14 +9,12 @@ import (
 type TradeRow struct {
 	Time          time.Time `json:"time"`
 	Exchange      string    `json:"exchange"`
-	Symbol        string    `json:"symbol"`
+	Pair          string    `json:"pair"`
 	MarketType    string    `json:"market_type"`
 	Price         float64   `json:"price"`
-	Qty           float64   `json:"qty"`
-	QuoteQty      float64   `json:"quote_qty"`
+	Size          float64   `json:"size"`
 	Side          string    `json:"side"`
-	IsBuyerMaker  bool      `json:"is_buyer_maker"`
-	IsLiquidation bool      `json:"is_liquidation"`
+	Liquidation   bool      `json:"liquidation"`
 }
 
 type LiquidationRow struct {
@@ -59,9 +57,9 @@ type OrderbookRow struct {
 func (s *Store) GetTrades(ctx context.Context, symbol, exchange, marketType string, since time.Time, limit int) ([]TradeRow, error) {
 	var args []interface{}
 	query := `
-		SELECT time, exchange, symbol, market_type, price, qty, quote_qty, side, is_buyer_maker, is_liquidation
+		SELECT time, exchange, pair, market_type, price, size, side, liquidation
 		FROM trades
-		WHERE symbol = $1 AND time >= $2
+		WHERE pair = $1 AND time >= $2
 	`
 	args = append(args, symbol, since)
 	argCount := 2
@@ -90,9 +88,8 @@ func (s *Store) GetTrades(ctx context.Context, symbol, exchange, marketType stri
 	for rows.Next() {
 		var t TradeRow
 		err := rows.Scan(
-			&t.Time, &t.Exchange, &t.Symbol, &t.MarketType,
-			&t.Price, &t.Qty, &t.QuoteQty, &t.Side,
-			&t.IsBuyerMaker, &t.IsLiquidation,
+			&t.Time, &t.Exchange, &t.Pair, &t.MarketType,
+			&t.Price, &t.Size, &t.Side, &t.Liquidation,
 		)
 		if err != nil {
 			continue
@@ -207,11 +204,11 @@ func (s *Store) GetCVD(ctx context.Context, symbol, exchange, marketType, interv
 		SELECT 
 			time_bucket($1::interval, time) AS bucket,
 			exchange,
-			SUM(CASE WHEN side = 'buy' THEN quote_qty ELSE 0 END) AS buy_vol,
-			SUM(CASE WHEN side = 'sell' THEN quote_qty ELSE 0 END) AS sell_vol,
-			SUM(CASE WHEN side = 'buy' THEN quote_qty ELSE -quote_qty END) AS delta
+		SUM(CASE WHEN side = 'buy' THEN size ELSE 0 END) AS buy_vol,
+		SUM(CASE WHEN side = 'sell' THEN size ELSE 0 END) AS sell_vol,
+		SUM(CASE WHEN side = 'buy' THEN size ELSE -size END) AS delta
 		FROM trades
-		WHERE symbol = $2 AND time >= $3
+		WHERE pair = $2 AND time >= $3
 	`
 	
 	intervalDuration := time.Duration(intervalMs) * time.Millisecond

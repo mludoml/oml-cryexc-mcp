@@ -2,13 +2,13 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"oml-cryexc-mcp/internal/exchange"
+	"oml-aggr-mcp/internal/exchange"
 )
 
 type Store struct {
@@ -16,10 +16,19 @@ type Store struct {
 }
 
 func New(dbURL string) (*Store, error) {
-	pool, err := pgxpool.New(context.Background(), dbURL)
+	config, err := pgxpool.ParseConfig(dbURL)
 	if err != nil {
-		return nil, fmt.Errorf("pgxpool.New: %w", err)
+		return nil, fmt.Errorf("pgxpool.ParseConfig: %w", err)
 	}
+	config.MaxConns = 20
+	config.MinConns = 5
+	config.MaxConnIdleTime = 5 * time.Minute
+
+	pool, err := pgxpool.NewWithConfig(context.Background(), config)
+	if err != nil {
+		return nil, fmt.Errorf("pgxpool.NewWithConfig: %w", err)
+	}
+
 	return &Store{pool: pool}, nil
 }
 
@@ -33,9 +42,9 @@ func (s *Store) Pool() *pgxpool.Pool {
 
 func (s *Store) InsertTrade(ctx context.Context, t exchange.Trade) error {
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO trades (time, exchange, symbol, market_type, price, qty, quote_qty, side, is_buyer_maker, is_liquidation, trade_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-	`, t.Timestamp, t.Exchange, t.Symbol, t.MarketType, t.Price, t.Qty, t.QuoteQty, t.Side, t.IsBuyerMaker, t.IsLiquidation, t.TradeID)
+		INSERT INTO trades (time, exchange, pair, market_type, price, size, side, liquidation)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	`, t.Timestamp, t.Exchange, t.Symbol, t.MarketType, t.Price, t.QuoteQty, t.Side, t.IsLiquidation)
 	return err
 }
 
@@ -43,39 +52,48 @@ func (s *Store) InsertTradesBatch(ctx context.Context, trades []exchange.Trade) 
 	if len(trades) == 0 {
 		return nil
 	}
-	batch := &pgx.Batch{}
-	for _, t := range trades {
-		batch.Queue(`
-			INSERT INTO trades (time, exchange, symbol, market_type, price, qty, quote_qty, side, is_buyer_maker, is_liquidation, trade_id)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-		`, t.Timestamp, t.Exchange, t.Symbol, t.MarketType, t.Price, t.Qty, t.QuoteQty, t.Side, t.IsBuyerMaker, t.IsLiquidation, t.TradeID)
-	}
-	br := s.pool.SendBatch(ctx, batch)
-	defer br.Close()
-	for i := 0; i < len(trades); i++ {
-		if _, err := br.Exec(); err != nil {
-			slog.Warn("batch insert trade error", "index", i, "err", err)
-		}
-	}
-	return br.Close()
+	_, err := s.pool.CopyFrom(ctx,
+		pgx.Identifier{"trades"},
+		[]string{"time", "exchange", "pair", "market_type", "price", "size", "side", "liquidation"},
+		copyFromSlice(len(trades), func(i int) ([]any, error) {
+			trade := trades[i]
+			return []any{trade.Timestamp, trade.Exchange, trade.Symbol, trade.MarketType, trade.Price, trade.QuoteQty, trade.Side, trade.IsLiquidation}, nil
+		}),
+	)
+	return err
 }
 
 func (s *Store) InsertOrderbookSnapshot(ctx context.Context, ob exchange.OrderbookSnapshot) error {
-	batch := &pgx.Batch{}
-	for _, lvl := range ob.Levels {
-		batch.Queue(`
-			INSERT INTO orderbook_snapshots (time, exchange, symbol, market_type, tick_size, price, bid_qty, ask_qty)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		`, ob.Timestamp, ob.Exchange, ob.Symbol, ob.MarketType, ob.TickSize, lvl.Price, lvl.BidQty, lvl.AskQty)
+	if len(ob.Levels) == 0 {
+		return nil
 	}
-	br := s.pool.SendBatch(ctx, batch)
-	defer br.Close()
-	for i := 0; i < len(ob.Levels); i++ {
-		if _, err := br.Exec(); err != nil {
-			slog.Warn("batch insert ob error", "index", i, "err", err)
-		}
+
+	levelsTop, err := json.Marshal(ob.Levels)
+	if err != nil {
+		return fmt.Errorf("marshal orderbook levels: %w", err)
 	}
-	return br.Close()
+
+	bestBid, bestAsk, bidDepth, askDepth := summarizeOrderbook(ob.Levels)
+	spread := 0.0
+	midPrice := 0.0
+	imbalance := 0.0
+	if bestBid > 0 && bestAsk > 0 {
+		spread = bestAsk - bestBid
+		midPrice = (bestAsk + bestBid) / 2
+	}
+	if askDepth > 0 {
+		imbalance = bidDepth / askDepth
+	}
+
+	_, err = s.pool.CopyFrom(ctx,
+		pgx.Identifier{"orderbook_snapshots"},
+		[]string{"time", "exchange", "pair", "best_bid", "best_ask", "spread", "mid_price", "imbalance", "bid_depth", "ask_depth", "levels_top", "symbol", "market_type", "tick_size", "price", "bid_qty", "ask_qty"},
+		copyFromSlice(len(ob.Levels), func(i int) ([]any, error) {
+			level := ob.Levels[i]
+			return []any{ob.Timestamp, ob.Exchange, ob.Symbol, bestBid, bestAsk, spread, midPrice, imbalance, bidDepth, askDepth, levelsTop, ob.Symbol, ob.MarketType, ob.TickSize, level.Price, level.BidQty, level.AskQty}, nil
+		}),
+	)
+	return err
 }
 
 func (s *Store) InsertLiquidation(ctx context.Context, l exchange.Liquidation) error {
@@ -84,6 +102,28 @@ func (s *Store) InsertLiquidation(ctx context.Context, l exchange.Liquidation) e
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`, l.Timestamp, l.Exchange, l.Symbol, l.MarketType, l.Side, l.Price, l.Qty, l.QuoteQty)
 	return err
+}
+
+func copyFromSlice(length int, fn func(i int) ([]any, error)) pgx.CopyFromSource {
+	return pgx.CopyFromSlice(length, fn)
+}
+
+func summarizeOrderbook(levels []exchange.OrderbookLevel) (bestBid, bestAsk, bidDepth, askDepth float64) {
+	for _, level := range levels {
+		if level.BidQty > 0 {
+			if level.Price > bestBid {
+				bestBid = level.Price
+			}
+			bidDepth += level.BidQty
+		}
+		if level.AskQty > 0 {
+			if bestAsk == 0 || level.Price < bestAsk {
+				bestAsk = level.Price
+			}
+			askDepth += level.AskQty
+		}
+	}
+	return bestBid, bestAsk, bidDepth, askDepth
 }
 
 func (s *Store) InsertMarketStat(ctx context.Context, ms exchange.MarketStat) error {
