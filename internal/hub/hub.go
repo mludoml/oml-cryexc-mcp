@@ -6,14 +6,18 @@ import (
 	"sync"
 	"time"
 
-	"oml-cryexc-mcp/internal/exchange"
-	"oml-cryexc-mcp/internal/store"
+	"oml-aggr-mcp/internal/buffer"
+	"oml-aggr-mcp/internal/exchange"
+	"oml-aggr-mcp/internal/store"
 )
+
+const defaultTradeRingCapacity = 500_000
 
 type Hub struct {
 	connectors []exchange.Connector
 	store      *store.Store
 	symbols    []string
+	tradeRing  *buffer.RingBuffer[exchange.Trade]
 	
 	tradeBuf       []exchange.Trade
 	tradeBufMu     sync.Mutex
@@ -29,6 +33,7 @@ func New(s *store.Store, symbols []string) *Hub {
 	return &Hub{
 		store:   s,
 		symbols: symbols,
+		tradeRing: buffer.New[exchange.Trade](defaultTradeRingCapacity),
 	}
 }
 
@@ -73,9 +78,18 @@ func (h *Hub) Stop() {
 }
 
 func (h *Hub) handleTrade(t exchange.Trade) {
+	h.tradeRing.Push(t)
 	h.tradeBufMu.Lock()
 	h.tradeBuf = append(h.tradeBuf, t)
 	h.tradeBufMu.Unlock()
+}
+
+func (h *Hub) RecentTrades(limit int) []exchange.Trade {
+	return h.tradeRing.Recent(limit)
+}
+
+func (h *Hub) FilterTrades(predicate func(exchange.Trade) bool) []exchange.Trade {
+	return h.tradeRing.Filter(predicate)
 }
 
 func (h *Hub) handleOrderbookSnapshot(ob exchange.OrderbookSnapshot) {
@@ -145,6 +159,7 @@ func (h *Hub) flushAll() {
 	if len(trades) > 0 {
 		if err := h.store.InsertTradesBatch(h.ctx, trades); err != nil {
 			slog.Error("flush trades error", "err", err)
+			h.requeueTrades(trades)
 		}
 	}
 	
@@ -154,9 +169,39 @@ func (h *Hub) flushAll() {
 	h.liquidationBuf = nil
 	h.liqBufMu.Unlock()
 	
-	for _, l := range liqs {
+	for i, l := range liqs {
 		if err := h.store.InsertLiquidation(h.ctx, l); err != nil {
 			slog.Warn("flush liquidation error", "err", err)
+			h.requeueLiquidations(liqs[i:])
+			break
 		}
 	}
+}
+
+func (h *Hub) requeueTrades(trades []exchange.Trade) {
+	if len(trades) == 0 {
+		return
+	}
+
+	h.tradeBufMu.Lock()
+	defer h.tradeBufMu.Unlock()
+
+	requeued := make([]exchange.Trade, 0, len(trades)+len(h.tradeBuf))
+	requeued = append(requeued, trades...)
+	requeued = append(requeued, h.tradeBuf...)
+	h.tradeBuf = requeued
+}
+
+func (h *Hub) requeueLiquidations(liqs []exchange.Liquidation) {
+	if len(liqs) == 0 {
+		return
+	}
+
+	h.liqBufMu.Lock()
+	defer h.liqBufMu.Unlock()
+
+	requeued := make([]exchange.Liquidation, 0, len(liqs)+len(h.liquidationBuf))
+	requeued = append(requeued, liqs...)
+	requeued = append(requeued, h.liquidationBuf...)
+	h.liquidationBuf = requeued
 }
