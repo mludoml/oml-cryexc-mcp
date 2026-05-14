@@ -3,6 +3,8 @@ package orderbook
 import (
 	"context"
 	"sync"
+
+	"oml-aggr-mcp/internal/exchange"
 	"time"
 )
 
@@ -62,6 +64,19 @@ func (r *Registry) Start(ctx context.Context) {
 	}
 }
 
+
+// ApplySnapshot replaces the full state for a given exchange+pair.
+func (r *Registry) ApplySnapshot(exchange, pair string, levels []exchange.OrderbookLevel) {
+	r.mu.Lock()
+	key := exchange + "|" + pair
+	st, ok := r.states[key]
+	if !ok {
+		st = NewState()
+		r.states[key] = st
+	}
+	r.mu.Unlock()
+	st.ApplySnapshot(levels)
+}
 func (r *Registry) snapshotAll() {
 	r.mu.RLock()
 	keys := make([]string, 0, len(r.states))

@@ -10,6 +10,7 @@ import (
 	"oml-aggr-mcp/internal/exchange"
 	"oml-aggr-mcp/internal/metrics"
 	"oml-aggr-mcp/internal/monitoring"
+	"oml-aggr-mcp/internal/orderbook"
 	"oml-aggr-mcp/internal/store"
 	"oml-aggr-mcp/internal/ws"
 )
@@ -29,6 +30,7 @@ type Hub struct {
 
 	metricsRegistry *metrics.Registry
 	wsHub          *ws.Hub
+	obRegistry     *orderbook.Registry
 	monitoring     *monitoring.Service
 
 	ctx    context.Context
@@ -36,13 +38,14 @@ type Hub struct {
 	wg     sync.WaitGroup
 }
 
-func New(s *store.Store, symbols []string, metricsRegistry *metrics.Registry, wsHub *ws.Hub) *Hub {
+func New(s *store.Store, symbols []string, metricsRegistry *metrics.Registry, wsHub *ws.Hub, obRegistry *orderbook.Registry) *Hub {
 	return &Hub{
 		store:           s,
 		symbols:         symbols,
 		tradeRing:       buffer.New[exchange.Trade](defaultTradeRingCapacity),
 		metricsRegistry: metricsRegistry,
 		wsHub:           wsHub,
+		obRegistry:      obRegistry,
 	}
 }
 
@@ -125,6 +128,9 @@ func (h *Hub) FilterTrades(predicate func(exchange.Trade) bool) []exchange.Trade
 func (h *Hub) handleOrderbookSnapshot(ob exchange.OrderbookSnapshot) {
 	if err := h.store.InsertOrderbookSnapshot(h.ctx, ob); err != nil {
 		slog.Warn("insert ob snapshot error", "err", err)
+	}
+	if h.obRegistry != nil {
+		h.obRegistry.ApplySnapshot(ob.Exchange, ob.Symbol, ob.Levels)
 	}
 	if h.wsHub != nil {
 		h.wsHub.Broadcast(ws.Message{Type: "orderbook", Data: ob})

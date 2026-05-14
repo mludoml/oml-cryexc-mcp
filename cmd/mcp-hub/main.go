@@ -14,6 +14,7 @@ import (
 	"oml-aggr-mcp/internal/hub"
 	"oml-aggr-mcp/internal/mcp"
 	"oml-aggr-mcp/internal/metrics"
+	"oml-aggr-mcp/internal/orderbook"
 	"oml-aggr-mcp/internal/store"
 	"oml-aggr-mcp/internal/ws"
 )
@@ -43,7 +44,8 @@ func main() {
 
 	metricsRegistry := metrics.NewRegistry(60 * time.Second)
 	wsHub := ws.NewHub(metricsRegistry)
-	h := hub.New(s, nil, metricsRegistry, wsHub)
+	obRegistry := orderbook.NewRegistry(1*time.Second, 20)
+	h := hub.New(s, nil, metricsRegistry, wsHub, obRegistry)
 	marketsByExchange := config.MarketsByExchange()
 
 	register := func(name string, conn exchange.Connector, exchangeID config.ExchangeID) {
@@ -105,7 +107,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	restServer := api.NewServer(h, s, wsHub, nil)
+	restServer := api.NewServer(h, s, wsHub, obRegistry)
 	go func() {
 		if err := restServer.Start(":3000"); err != nil {
 			slog.Error("rest server error", "err", err)
