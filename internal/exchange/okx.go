@@ -229,6 +229,10 @@ func (o *OKXConnector) handleTrade(data []byte) error {
 			continue
 		}
 
+		if strings.ToLower(t.Side) != "buy" && strings.ToLower(t.Side) != "sell" {
+			continue
+		}
+
 		instID := strings.ToUpper(t.InstID)
 		trade := Trade{
 			Exchange:     o.name,

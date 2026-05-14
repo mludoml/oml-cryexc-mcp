@@ -336,6 +336,9 @@ func (bg *BitgetConnector) handleTrade(arg map[string]string, data []byte) error
 		qty, _ := strconv.ParseFloat(qtyStr, 64)
 		ts := bitgetTimestamp(t.Ts)
 		side := strings.ToLower(t.Side)
+		if side != "buy" && side != "sell" {
+			continue
+		}
 		if price == 0 || qty == 0 || ts.IsZero() {
 			continue
 		}

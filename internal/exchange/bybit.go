@@ -310,13 +310,14 @@ func (b *BybitConnector) handleMessage(msg []byte) error {
 
 func (b *BybitConnector) handleTrade(data []byte) error {
 	var trades []struct {
-		T  json.Number `json:"T"`
-		S  string      `json:"s"`
-		V  string      `json:"v"`
-		P  string      `json:"p"`
-		L  string      `json:"L"`
-		I  string      `json:"i"`
-		BT bool        `json:"BT"`
+		T        json.Number `json:"T"`
+		Sym      string      `json:"s"`  // symbol
+		V        string      `json:"v"`
+		P        string      `json:"p"`
+		Side     string      `json:"S"`  // Buy/Sell
+		L        string      `json:"L"`
+		I        string      `json:"i"`
+		BT       bool        `json:"BT"`
 	}
 	if err := json.Unmarshal(data, &trades); err != nil {
 		return err
@@ -329,10 +330,10 @@ func (b *BybitConnector) handleTrade(data []byte) error {
 			continue
 		}
 
-		symbol := strings.ToUpper(t.S)
-		side := strings.ToLower(t.L)
-		if side == "" {
-			side = "buy"
+		symbol := strings.ToUpper(t.Sym)
+		side := strings.ToLower(t.Side)
+		if side != "buy" && side != "sell" {
+			continue
 		}
 
 		trade := Trade{
