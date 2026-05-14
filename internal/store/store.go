@@ -40,6 +40,10 @@ func (s *Store) Pool() *pgxpool.Pool {
 	return s.pool
 }
 
+func (s *Store) Ping(ctx context.Context) error {
+	return s.pool.Ping(ctx)
+}
+
 func (s *Store) InsertTrade(ctx context.Context, t exchange.Trade) error {
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO trades (time, exchange, pair, market_type, price, size, side, liquidation)

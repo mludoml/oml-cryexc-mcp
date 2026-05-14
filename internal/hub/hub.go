@@ -8,6 +8,7 @@ import (
 
 	"oml-aggr-mcp/internal/buffer"
 	"oml-aggr-mcp/internal/exchange"
+	"oml-aggr-mcp/internal/monitoring"
 	"oml-aggr-mcp/internal/store"
 )
 
@@ -23,6 +24,8 @@ type Hub struct {
 	tradeBufMu     sync.Mutex
 	liquidationBuf []exchange.Liquidation
 	liqBufMu       sync.Mutex
+	
+	monitoring *monitoring.Service
 	
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -45,13 +48,11 @@ func (h *Hub) Start(ctx context.Context) error {
 	h.ctx, h.cancel = context.WithCancel(ctx)
 	
 	for _, c := range h.connectors {
-		// Set callbacks
 		c.OnTrade(h.handleTrade)
 		c.OnOrderbookSnapshot(h.handleOrderbookSnapshot)
 		c.OnLiquidation(h.handleLiquidation)
 		c.OnMarketStat(h.handleMarketStat)
 		
-		// Start connector
 		h.wg.Add(1)
 		go func(conn exchange.Connector) {
 			defer h.wg.Done()
@@ -60,6 +61,14 @@ func (h *Hub) Start(ctx context.Context) error {
 			}
 		}(c)
 	}
+	
+	// Start monitoring heartbeat
+	h.monitoring = monitoring.NewService(h.store, h.connectors)
+	h.wg.Add(1)
+	go func() {
+		defer h.wg.Done()
+		h.monitoring.Start(h.ctx)
+	}()
 	
 	// Start snapshot emitter
 	h.wg.Add(1)
