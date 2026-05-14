@@ -3,13 +3,13 @@ version: '3.8'
 services:
   timescaledb:
     image: timescale/timescaledb:latest-pg16
-    container_name: oml-cryexc-db
+    container_name: oml-aggr-mcp-db
     environment:
-      POSTGRES_USER: cryexec
-      POSTGRES_PASSWORD: cryexec_secret
-      POSTGRES_DB: cryexec
+      POSTGRES_USER: aggr
+      POSTGRES_PASSWORD: aggr_secret
+      POSTGRES_DB: aggr
     volumes:
-      - /volume1/docker/oml-cryexc-db:/var/lib/postgresql/data
+      - /volume1/docker/oml-aggr-mcp-db:/var/lib/postgresql/data
       - ./migrations:/docker-entrypoint-initdb.d
     ports:
       - "5432:5432"
@@ -17,7 +17,7 @@ services:
     cpus: 1.5
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U cryexec -d cryexec"]
+      test: ["CMD-SHELL", "pg_isready -U aggr -d aggr"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -26,9 +26,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: oml-cryexc-mcp
+    container_name: oml-aggr-mcp
     environment:
-      DB_URL: postgres://cryexec:cryexec_secret@timescaledb:5432/cryexec?sslmode=disable
+      DB_URL: postgres://aggr:aggr_secret@timescaledb:5432/aggr?sslmode=disable
       SYMBOLS: BTCUSDT
       LOG_LEVEL: info
     ports:
@@ -41,4 +41,4 @@ services:
       timescaledb:
         condition: service_healthy
     volumes:
-      - /volume1/docker/oml-cryexc-logs:/app/logs
+      - /volume1/docker/oml-aggr-mcp-logs:/app/logs

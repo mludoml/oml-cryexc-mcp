@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"time"
 
-	"oml-cryexc-mcp/internal/compute"
-	"oml-cryexc-mcp/internal/store"
+	"oml-aggr-mcp/internal/compute"
+	"oml-aggr-mcp/internal/store"
 )
 
 type Server struct {

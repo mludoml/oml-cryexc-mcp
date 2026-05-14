@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"oml-cryexc-mcp/internal/compute"
-	"oml-cryexc-mcp/internal/store"
+	"oml-aggr-mcp/internal/compute"
+	"oml-aggr-mcp/internal/store"
 )
 
 // Minimal MCP Protocol implementation (SSE + JSON-RPC)
@@ -175,7 +175,7 @@ func (m *MCPServer) handleInitialize(msg *mcpMessage) mcpResponse {
 				"tools": map[string]bool{},
 			},
 			"serverInfo": map[string]string{
-				"name":    "oml-cryexc-mcp",
+			"name":    "oml-aggr-mcp",
 				"version": "0.1.0",
 			},
 		},

@@ -1,4 +1,4 @@
-module oml-cryexc-mcp
+module oml-aggr-mcp
 
 go 1.23
 
