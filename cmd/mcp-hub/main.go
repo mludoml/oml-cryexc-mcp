@@ -13,6 +13,7 @@ import (
 	"oml-aggr-mcp/internal/exchange"
 	"oml-aggr-mcp/internal/hub"
 	"oml-aggr-mcp/internal/mcp"
+	"oml-aggr-mcp/internal/metrics"
 	"oml-aggr-mcp/internal/store"
 )
 
@@ -39,7 +40,8 @@ func main() {
 	}
 	defer s.Close()
 
-	h := hub.New(s, nil)
+	metricsRegistry := metrics.NewRegistry(60 * time.Second)
+	h := hub.New(s, nil, metricsRegistry)
 	marketsByExchange := config.MarketsByExchange()
 
 	register := func(name string, conn exchange.Connector, exchangeID config.ExchangeID) {

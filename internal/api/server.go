@@ -76,10 +76,13 @@ func (s *Server) handleMetricsCurrent(w http.ResponseWriter, r *http.Request) {
 		windowSecs = 60
 	}
 
-	// TODO: wire metrics registry snapshot here
+	per, global, liqs := s.hub.MetricsRegistry().SnapshotAll()
 	resp := map[string]interface{}{
-		"window": windowSecs,
-		"cvd":    map[string]interface{}{},
+		"window":      windowSecs,
+		"timestamp":   time.Now().UTC().Format(time.RFC3339Nano),
+		"perExchange": per,
+		"global":      global,
+		"liquidations": liqs,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)

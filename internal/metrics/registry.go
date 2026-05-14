@@ -97,7 +97,7 @@ type LiquidationSnapshot struct {
 
 // SnapshotAll returns per-exchange and global CVD snapshots, plus liquidation data.
 // cvdStart is a map of cumulative delta offsets per key (caller maintains).
-func (r *Registry) SnapshotAll(cvdStart map[WindowKey]float64) (
+func (r *Registry) SnapshotAll() (
 	perExchange []PerExchangeSnapshot,
 	global GlobalSnapshot,
 	liqs LiquidationSnapshot,
@@ -105,14 +105,11 @@ func (r *Registry) SnapshotAll(cvdStart map[WindowKey]float64) (
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	// Global CVD
 	global.BuyVolume, global.SellVolume, global.Delta, global.CVD =
 		r.globalCVD.Snapshot(0)
 
-	// Per-exchange CVD
 	for key, w := range r.cvd {
-		start := cvdStart[key]
-		buy, sell, delta, cvd := w.Snapshot(start)
+		buy, sell, delta, cvd := w.Snapshot(0)
 		perExchange = append(perExchange, PerExchangeSnapshot{
 			Exchange:   key.Exchange,
 			MarketType: key.MarketType,
@@ -123,7 +120,6 @@ func (r *Registry) SnapshotAll(cvdStart map[WindowKey]float64) (
 		})
 	}
 
-	// Liquidations
 	liqs.PerExchange = make(map[WindowKey]struct {
 		LongVol    float64 `json:"long_vol"`
 		ShortVol   float64 `json:"short_vol"`
@@ -139,7 +135,6 @@ func (r *Registry) SnapshotAll(cvdStart map[WindowKey]float64) (
 			ShortCount int64   `json:"short_count"`
 		}{LongVol: lv, ShortVol: sv, LongCount: lc, ShortCount: sc}
 	}
-	// Global liquidations
 	liqs.Global.LongVol, liqs.Global.ShortVol, liqs.Global.LongCount, liqs.Global.ShortCount =
 		r.globalLiqs.Snapshot()
 

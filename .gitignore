@@ -1,8 +1,6 @@
-# Binaries
-main
-test
-mcp-hub
-*.exe
+/oml-aggr-mcp
+/mcp-hub
+/main
 
 # Go build artifacts
 *.test
