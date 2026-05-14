@@ -11,20 +11,22 @@ import (
 	"oml-aggr-mcp/internal/config"
 	"oml-aggr-mcp/internal/exchange"
 	"oml-aggr-mcp/internal/hub"
+	"oml-aggr-mcp/internal/orderbook"
 	"oml-aggr-mcp/internal/store"
 	"oml-aggr-mcp/internal/ws"
 )
 
 type Server struct {
-	mux   *http.ServeMux
-	srv   *http.Server
-	hub   *hub.Hub
-	store *store.Store
-	wsHub *ws.Hub
+	mux        *http.ServeMux
+	srv        *http.Server
+	hub        *hub.Hub
+	store      *store.Store
+	wsHub      *ws.Hub
+	obRegistry *orderbook.Registry
 }
 
-func NewServer(h *hub.Hub, s *store.Store, wsHub *ws.Hub) *Server {
-	return &Server{hub: h, store: s, wsHub: wsHub}
+func NewServer(h *hub.Hub, s *store.Store, wsHub *ws.Hub, obRegistry *orderbook.Registry) *Server {
+	return &Server{hub: h, store: s, wsHub: wsHub, obRegistry: obRegistry}
 }
 
 func (s *Server) Start(addr string) error {
@@ -46,6 +48,8 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/history/candles", s.handleHistoryCandles)
 	s.mux.HandleFunc("/history/trades", s.handleHistoryTrades)
 	s.mux.HandleFunc("/exchanges", s.handleExchanges)
+	s.mux.HandleFunc("/orderbook/current", s.handleOrderbookCurrent)
+	s.mux.HandleFunc("/orderbook/history", s.handleOrderbookHistory)
 	if s.wsHub != nil {
 		s.mux.HandleFunc("/ws", s.wsHub.ServeWS)
 	}
@@ -163,6 +167,59 @@ func (s *Server) handleHistoryTrades(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleExchanges(w http.ResponseWriter, r *http.Request) {
 	resp := map[string]interface{}{"markets": config.Markets}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+func (s *Server) handleOrderbookCurrent(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	exchange := q.Get("exchange")
+	pair := q.Get("pair")
+	if exchange == "" || pair == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "exchange and pair are required"})
+		return
+	}
+	if s.obRegistry == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{"error": "order book not enabled"})
+		return
+	}
+	snap := s.obRegistry.GetState(exchange, pair)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(snap)
+}
+
+func (s *Server) handleOrderbookHistory(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	from := q.Get("from")
+	to := q.Get("to")
+	exchange := q.Get("exchange")
+	pair := q.Get("pair")
+	if from == "" || to == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "from and to are required (ISO 8601)"})
+		return
+	}
+	limit, _ := strconv.Atoi(q.Get("limit"))
+	if limit <= 0 || limit > 10000 {
+		limit = 1000
+	}
+
+	ctx := r.Context()
+	rows, err := s.store.GetLatestOrderbook(ctx, pair, exchange, "")
+	if err != nil {
+		slog.Error("orderbook history query error", "err", err)
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+	if len(rows) > limit {
+		rows = rows[:limit]
+	}
+	resp := map[string]interface{}{
+		"count":     len(rows),
+		"snapshots": rows,
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
 }

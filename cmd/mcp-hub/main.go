@@ -105,7 +105,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	restServer := api.NewServer(h, s, wsHub)
+	restServer := api.NewServer(h, s, wsHub, nil)
 	go func() {
 		if err := restServer.Start(":3000"); err != nil {
 			slog.Error("rest server error", "err", err)
