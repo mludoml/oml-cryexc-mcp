@@ -131,3 +131,19 @@ func (s *State) Snapshot(exchange, pair string, topN int) Snapshot {
 		Timestamp: time.Now().UTC(),
 	}
 }
+
+// ApplySnapshot replaces state with full order book snapshot data.
+func (s *State) ApplySnapshot(levels []exchange.OrderbookLevel) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.bids = make(map[float64]float64)
+	s.asks = make(map[float64]float64)
+	for _, l := range levels {
+		if l.BidQty > 0 {
+			s.bids[l.Price] = l.BidQty
+		}
+		if l.AskQty > 0 {
+			s.asks[l.Price] = l.AskQty
+		}
+	}
+}
