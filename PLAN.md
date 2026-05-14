@@ -210,16 +210,18 @@ Bezwzględnie czytaj odpowiadający plik w `oml-aggr/src/exchanges/` jako wzór.
 
 ---
 
-## Faza 6 ✅ — Metryki real-time (CVD / delta / liqs)
+## Faza 6 🟡 — Metryki real-time (CVD / delta / liqs)
 
 | # | Plik | Co | Status |
 |---|---|---|---|
-| 6.1 | `internal/metrics/cvd.go` | sliding window per (`exchange`, `market_type`); window konfigurowalne (default 60s); pola `buyVolume`, `sellVolume`, `delta`, `cvd` (cumulative od startu) | ✅ |
+| 6.1 | `internal/metrics/cvd.go` | sliding window per (`exchange`, `market_type`); window konfigurowalne (default 60s); pola `buyVolume`, `sellVolume`, `delta`, `cvd` (cumulative od startu) | 🟡 struktura OK, **niepodpięta** |
 | 6.2 | `internal/metrics/liquidations.go` | sliding window long/short liqs (kwota + count) | ✅ (zmergowane w `cvd.go`) |
 | 6.3 | `internal/metrics/snapshot.go` | snapshot co 1s → publikuje do `WsHub` + (opcjonalnie) do DB jako `metrics_1s` | ⏸️ do zrobienia w fazie 9 (WS) |
-| 6.4 | `internal/metrics/registry.go` | per-exchange + global aggregate | ✅ |
+| 6.4 | `internal/metrics/registry.go` | per-exchange + global aggregate | 🟡 struktura OK, **niepodpięta** |
 
 **Definicja użyta**: `[]TradeEvent` z pruningiem (cutoff), NIE `container/list` (overkill dla ~5k ticków/min).
+
+> ⚠️ **Audyt 2026-05-14**: kod istnieje, ale jest dead code. `internal/hub/hub.go:51` rejestruje tylko `h.handleTrade`, nigdy `metrics.RecordTrade`. `cmd/mcp-hub/main.go` nie importuje pakietu `metrics`. Patrz **Faza 8.5** poniżej.
 
 ---
 
@@ -235,18 +237,45 @@ Bezwzględnie czytaj odpowiadający plik w `oml-aggr/src/exchanges/` jako wzór.
 
 ---
 
-## Faza 8 ✅ — REST API (kontrakt zgodny z oml-aggr)
+## Faza 8 🟡 — REST API (kontrakt zgodny z oml-aggr)
 
 | Endpoint | Status | Uwagi |
 |---|---|---|
 | `GET /health` | ✅ | Exchange statuses + DB check |
-| `GET /metrics/current?window=60` | ✅ | Skeleton CVD (do wypełnienia po podpięciu metrics registry) |
+| `GET /metrics/current?window=60` | 🟡 | Endpoint zarejestrowany, ale zwraca `{"window":60,"cvd":{}}` — TODO w `server.go:79` (czeka na faza 8.5 pkt 1) |
 | `GET /trades/recent?limit&exchange&type` | ✅ | Live z ring buffer |
-| `GET /history/candles?from&to&type&exchange` | ✅ | Validated params, DB query TODO |
-| `GET /history/trades?from&to&exchange&limit` | ✅ | Validated params, DB query TODO |
+| `GET /history/candles?from&to&type&exchange` | ❌ | Params walidowane, **brak DB query** (`server.go:131`) |
+| `GET /history/trades?from&to&exchange&limit` | ❌ | Params walidowane, **brak DB query** (`server.go:152`) |
 | `GET /exchanges` | ✅ | `config.Markets` |
 
 **Router**: `net/http.ServeMux` — bez frameworka, typed routes w Go 1.22.
+
+---
+
+## Faza 8.5 — Dług audytu 2026-05-14 (blokuje fazy 9+)
+
+> Audyt wykrył, że fazy 6 i 8 zostały zacommitowane z `✅` mimo że części runtime brakuje. Te poprawki muszą zejść z drogi **zanim** wejdziemy w fazę 9 (WS broadcast), bo WS oczekuje działającego `metrics.Snapshot()`.
+
+| # | Plik | Co | Status |
+|---|---|---|---|
+| 8.5.1 | `internal/hub/hub.go` + `cmd/mcp-hub/main.go` | Zainicjalizować `metrics.NewRegistry(60*time.Second)`, przekazać do `hub.New`, w `handleTrade` wołać `registry.RecordTrade(...)` (oraz `RecordLiquidation` dla `t.IsLiquidation`) | ❌ |
+| 8.5.2 | `internal/api/server.go:79` | `/metrics/current` zwraca `registry.Snapshot(window)` (per-exchange + global). Window z query param, walidacja 1–3600s. Shape 1:1 z `oml-aggr/src/api/metrics.ts` | ❌ |
+| 8.5.3 | `internal/store/query.go` (NOWY) + `internal/api/server.go:131` | `/history/candles`: query do `trades_1m` continuous aggregate z `from`/`to`/`type`/`exchange`. Payload zgodny z TS | ❌ |
+| 8.5.4 | `internal/store/query.go` + `internal/api/server.go:152` | `/history/trades`: query do `trades` z filtrami, default limit 1000, hard cap 10000 | ❌ |
+| 8.5.5 | `internal/store/monitoring_writer.go:50` | Zamienić `[]string{"exchange_status"}` na `pgx.Identifier{"exchange_status"}` (spójność z `store.go:59`) | ❌ |
+| 8.5.6 | `cmd/` | Usunąć debug binaria (faza 0.3 niewykonana): `cmd/debug_*` (13 katalogów), `cmd/quick_retest`, `cmd/retest`, `cmd/validate`, `cmd/validate2`, `cmd/test_*`. Zostawić `cmd/test`, `cmd/mcp-hub` (oraz przyszły `cmd/oml-aggr-mcp`, `cmd/mcp-stdio`) | ❌ |
+| 8.5.7 | `.gitignore` | Dodać `/oml-aggr-mcp` (16MB binarka w root, untracked), `/mcp-hub`, `/main` — żeby nie wpadały do commitów | ❌ |
+| 8.5.8 | `cmd/mcp-hub` → `cmd/oml-aggr-mcp` | Rename głównego entrypointu zgodnie z nazwą projektu (PLAN faza 12 zakłada tę ścieżkę). Zaktualizować `docker-compose.yml`, ewentualne skrypty deploy | ❌ |
+| 8.5.9 | `internal/store/migrate.go` + `cmd/oml-aggr-mcp/main.go` | Zweryfikować, że runner migracji startuje przy boot (flag `-migrate-only` per CLAUDE.md). Audyt nie potwierdził wywołania w `main.go` | ❌ |
+| 8.5.10 | `internal/store/store.go:70–101` | Schemat `InsertOrderbookSnapshot` ma 17 kolumn, faza 11 zakłada 10–11. Albo dosunąć schemat do fazy 11, albo zaktualizować plan fazy 11 do realiów kodu — decyzja przed rozpoczęciem fazy 11 | ❌ |
+
+**Definition of done fazy 8.5**:
+1. `curl 'localhost:3000/metrics/current?window=60'` zwraca niezerowe `cvd`/`delta`/`liqs` per giełda po >60s pracy.
+2. `curl 'localhost:3000/history/candles?from=...&to=...&type=spot'` zwraca bary z `trades_1m`.
+3. `curl 'localhost:3000/history/trades?from=...&to=...&exchange=BINANCE'` zwraca surowe ticki.
+4. `ls cmd/` nie zawiera `debug_*`, `validate*`, `retest`, `quick_retest`, `test_*`.
+5. `git status` czyste (binaria w `.gitignore`).
+6. `go build ./cmd/oml-aggr-mcp` produkuje główny binarkę.
 
 ---
 
@@ -366,6 +395,7 @@ Decyzja: (a) jeśli historia ma wartość dla `oml-dash`; (b) jeśli i tak reset
 | 2 | Fazy 4 + 5: audyt 7 istniejących + 7 nowych konektorów |
 | 3 | **Faza 5.5**: wpięcie wszystkich 14 do hub-a + walidacja per-każda z 46 par (bugfix do skutku — 46/46 zielone) |
 | 4 | Fazy 6–7: metryki + monitoring |
+| 4.5 | **Faza 8.5**: dług audytu 2026-05-14 — wpiąć `metrics.Registry` do hub, podpiąć `/metrics/current`, dokończyć `/history/*`, posprzątać `cmd/debug_*` + `.gitignore`, rename `mcp-hub`→`oml-aggr-mcp` |
 | 5 | Fazy 8–10: REST, WS hub, MCP stdio + test kontraktowy z `oml-aggr` (parytet payloadów) |
 | 6 | Faza 11: order book |
 | 7 | Faza 12: Docker + switch na NAS |
@@ -390,6 +420,7 @@ Realistycznie 4–7 solidnych sesji.
 
 | Ryzyko | Prawdopodobieństwo | Mitygacja |
 |---|---|---|
+| Dług audytu (faza 8.5) urośnie, jeśli wejdziemy w fazy 9–12 z dead code w metryce/REST | **wysokie** | zamknąć fazę 8.5 zanim zaczniemy WS (faza 9) — WS broadcastuje `metrics`, więc bez wpiętego registry jest pusta rurka |
 | Pomyłka w formule USD dla nowego konektora | wysokie | tabela weryfikacyjna z `oml-aggr/PLAN.md` "Weryfikacja size USD" jako test reference; per-konektor `cmd/test_*` z porównaniem do coinglass |
 | Order book delta desync (luki w `update_id`) | wysokie | per giełda checksum/reconciliation; reset stanu i ponowny REST snapshot przy luki |
 | Performance: 14 konektorów × goroutines × order book | średnie | profilowanie `pprof` po fazie 7; budżet RAM 1GB |

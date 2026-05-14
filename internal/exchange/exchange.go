@@ -41,14 +41,15 @@ type OrderbookSnapshot struct {
 
 // Liquidation represents a liquidation event
 type Liquidation struct {
-	Exchange   string
-	Symbol     string
-	MarketType string
-	Side       string
-	Price      float64
-	Qty        float64
-	QuoteQty   float64
-	Timestamp  time.Time
+    Exchange      string
+    Symbol        string
+    MarketType    string
+    Side          string
+    Price         float64
+    Qty           float64
+    QuoteQty      float64
+    IsLiquidation bool
+    Timestamp     time.Time
 }
 
 // MarketStat represents a market stats update
