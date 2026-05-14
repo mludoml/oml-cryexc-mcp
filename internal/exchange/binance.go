@@ -13,13 +13,16 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"oml-aggr-mcp/internal/config"
 )
 
 // BinanceConnector connects to Binance WebSocket APIs
 type BinanceConnector struct {
+	ConnectorRuntime
 	name         string
 	spotWSURL    string
 	futuresWSURL string
+	markets      []config.MarketConfig
 	symbol       string
 	marketType   string
 	
@@ -63,12 +66,23 @@ func (b *BinanceConnector) OnOrderbookSnapshot(cb func(OrderbookSnapshot)) { b.o
 func (b *BinanceConnector) OnLiquidation(cb func(Liquidation)) { b.onLiquidation = cb }
 func (b *BinanceConnector) OnMarketStat(cb func(MarketStat))    { b.onMarketStat = cb }
 
-func (b *BinanceConnector) Connect(symbol, marketType string) error {
-	b.symbol = strings.ToUpper(symbol)
-	b.marketType = marketType
-	b.orderbooks[marketType] = &binanceOrderbook{
-		bids: make(map[string]float64),
-		asks: make(map[string]float64),
+func (b *BinanceConnector) Connect(markets []config.MarketConfig) error {
+	if len(markets) == 0 {
+		return fmt.Errorf("no markets configured")
+	}
+	b.markets = append([]config.MarketConfig(nil), markets...)
+	first := markets[0]
+	b.symbol = strings.ToLower(first.Pair)
+	b.marketType = string(first.Type)
+	for _, market := range markets {
+		if market.Type != first.Type {
+			continue
+		}
+		symbol := strings.ToLower(market.Pair)
+		b.orderbooks[symbol] = &binanceOrderbook{
+			bids: make(map[string]float64),
+			asks: make(map[string]float64),
+		}
 	}
 	return nil
 }
@@ -77,6 +91,7 @@ func (b *BinanceConnector) Disconnect() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.running = false
+	b.MarkDisconnected("shutdown")
 	if b.cancel != nil {
 		b.cancel()
 	}
@@ -88,6 +103,7 @@ func (b *BinanceConnector) Disconnect() {
 func (b *BinanceConnector) Run(ctx context.Context) error {
 	b.ctx, b.cancel = context.WithCancel(ctx)
 	defer b.cancel()
+	b.MarkConnecting("connecting")
 	
 	b.mu.Lock()
 	b.running = true
@@ -102,10 +118,11 @@ func (b *BinanceConnector) Run(ctx context.Context) error {
 		
 		if err := b.connectAndStream(); err != nil {
 			slog.Error("binance stream error", "exchange", b.name, "market", b.marketType, "err", err)
+			delay := b.MarkReconnectScheduled("reconnect_scheduled")
 			select {
 			case <-b.ctx.Done():
 				return nil
-			case <-time.After(5 * time.Second):
+			case <-time.After(delay):
 				continue
 			}
 		}
@@ -115,12 +132,14 @@ func (b *BinanceConnector) Run(ctx context.Context) error {
 func (b *BinanceConnector) connectAndStream() error {
 	streams := b.buildStreams()
 	wsURL := b.spotWSURL
+	path := "/stream"
 	if b.marketType == "perp" {
 		wsURL = b.futuresWSURL
+		path = "/market/stream"
 	}
 	
 	u, _ := url.Parse(wsURL)
-	u.Path = "/stream"
+	u.Path = path
 	q := u.Query()
 	q.Set("streams", strings.Join(streams, "/"))
 	u.RawQuery = q.Encode()
@@ -129,10 +148,16 @@ func (b *BinanceConnector) connectAndStream() error {
 	
 	ws, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
 	if err != nil {
+		b.MarkDisconnected("dial_error")
 		return fmt.Errorf("dial: %w", err)
 	}
 	defer ws.Close()
 	b.ws = ws
+	ws.SetPingHandler(func(appData string) error {
+		deadline := time.Now().Add(5 * time.Second)
+		return ws.WriteControl(websocket.PongMessage, []byte(appData), deadline)
+	})
+	b.MarkConnected("connected")
 	
 	// Fetch initial orderbook snapshot for depth rebuild
 	if err := b.fetchSnapshot(); err != nil {
@@ -149,8 +174,10 @@ func (b *BinanceConnector) connectAndStream() error {
 		ws.SetReadDeadline(time.Now().Add(60 * time.Second))
 		_, msg, err := ws.ReadMessage()
 		if err != nil {
+			b.MarkDisconnected("read_error")
 			return fmt.Errorf("read: %w", err)
 		}
+		b.MarkMessageReceived()
 		
 		if err := b.handleMessage(msg); err != nil {
 			slog.Warn("handle message error", "err", err)
@@ -159,21 +186,43 @@ func (b *BinanceConnector) connectAndStream() error {
 }
 
 func (b *BinanceConnector) buildStreams() []string {
-	sym := strings.ToLower(b.symbol)
-	if b.marketType == "spot" {
-		return []string{
-			sym + "@trade",
-			sym + "@depth@100ms",
-			sym + "@ticker",
+	symbols := make([]string, 0, len(b.markets))
+	seen := make(map[string]struct{})
+	for _, market := range b.markets {
+		if string(market.Type) != b.marketType {
+			continue
 		}
+		symbol := strings.ToLower(market.Pair)
+		if _, ok := seen[symbol]; ok {
+			continue
+		}
+		seen[symbol] = struct{}{}
+		symbols = append(symbols, symbol)
 	}
-	// perp
-	return []string{
-		sym + "@aggTrade",
-		sym + "@depth@100ms",
-		sym + "@markPrice@1s",
-		sym + "@forceOrder",
+	if len(symbols) == 0 && b.symbol != "" {
+		symbols = append(symbols, strings.ToLower(b.symbol))
 	}
+
+	streams := make([]string, 0, len(symbols)*3)
+	if b.marketType == "spot" {
+		for _, symbol := range symbols {
+			streams = append(streams,
+				symbol+"@trade",
+				symbol+"@depth@100ms",
+				symbol+"@ticker",
+			)
+		}
+		return streams
+	}
+	for _, symbol := range symbols {
+		streams = append(streams,
+			symbol+"@aggTrade",
+			symbol+"@depth@100ms",
+			symbol+"@markPrice@1s",
+			symbol+"@forceOrder",
+		)
+	}
+	return streams
 }
 
 func (b *BinanceConnector) handleMessage(msg []byte) error {
@@ -248,15 +297,16 @@ func (b *BinanceConnector) handleTrade(data []byte) error {
 	
 	trade := Trade{
 		Exchange:     b.name,
-		Symbol:       b.symbol,
+		Symbol:       strings.ToLower(t.S),
 		MarketType:   b.marketType,
 		Price:        price,
 		Qty:          qty,
 		QuoteQty:     price * qty,
 		Side:         side,
 		IsBuyerMaker: t.M,
-		Timestamp:    time.Now(),
+		Timestamp:    time.UnixMilli(int64(t.T)).UTC(),
 	}
+	b.MarkTrade(trade.Timestamp)
 	
 	if b.onTrade != nil {
 		b.onTrade(trade)
@@ -266,10 +316,10 @@ func (b *BinanceConnector) handleTrade(data []byte) error {
 
 func (b *BinanceConnector) handleDepthUpdate(data []byte) error {
 	var d struct {
-		S  string     `json:"s"`
-		U  float64    `json:"U"`
-		UF float64    `json:"u"`
-		Pu float64    `json:"pu"`
+		S  string      `json:"s"`
+		U  float64     `json:"U"`
+		UF float64     `json:"u"`
+		Pu float64     `json:"pu"`
 		B  [][2]string `json:"b"`
 		A  [][2]string `json:"a"`
 	}
@@ -277,7 +327,7 @@ func (b *BinanceConnector) handleDepthUpdate(data []byte) error {
 		return err
 	}
 	
-	ob := b.orderbooks[b.marketType]
+	ob := b.orderbooks[strings.ToLower(d.S)]
 	if ob == nil {
 		return nil
 	}
@@ -330,13 +380,13 @@ func (b *BinanceConnector) handleMarkPrice(data []byte) error {
 	
 	stat := MarketStat{
 		Exchange:        b.name,
-		Symbol:          b.symbol,
+		Symbol:          strings.ToLower(mp.S),
 		MarketType:      b.marketType,
 		MarkPrice:       markPrice,
 		IndexPrice:      indexPrice,
 		FundingRate:     fundingRate,
-		NextFundingTime: time.Unix(int64(mp.T/1000), 0),
-		Timestamp:       time.Now(),
+		NextFundingTime: time.UnixMilli(int64(mp.T)).UTC(),
+		Timestamp:       time.UnixMilli(int64(mp.T)).UTC(),
 	}
 	
 	if b.onMarketStat != nil {
@@ -382,13 +432,13 @@ func (b *BinanceConnector) handleLiquidation(data []byte) error {
 	
 	liquidation := Liquidation{
 		Exchange:   b.name,
-		Symbol:     b.symbol,
+		Symbol:     strings.ToLower(liq.S),
 		MarketType: b.marketType,
 		Side:       strings.ToLower(side),
 		Price:      p,
 		Qty:        q,
 		QuoteQty:   p * q,
-		Timestamp:  time.Unix(0, liq.T*1e6),
+		Timestamp:  time.UnixMilli(liq.T).UTC(),
 	}
 	
 	if b.onLiquidation != nil {
@@ -405,52 +455,43 @@ func (b *BinanceConnector) fetchSnapshot() error {
 
 // EmitOrderbookSnapshot should be called periodically (e.g. every 500ms-1s) by the hub
 func (b *BinanceConnector) EmitOrderbookSnapshot(tickSize float64) {
-	ob := b.orderbooks[b.marketType]
-	if ob == nil {
-		return
-	}
-	
-	ob.mu.RLock()
-	
-	// Collect all price levels
-	allPrices := make(map[string]struct{})
-	for p := range ob.bids {
-		allPrices[p] = struct{}{}
-	}
-	for p := range ob.asks {
-		allPrices[p] = struct{}{}
-	}
-	
-	var levels []OrderbookLevel
-	for p := range allPrices {
-		price, _ := strconv.ParseFloat(p, 64)
-		if math.IsNaN(price) || price == 0 {
-			continue
+	for symbol, ob := range b.orderbooks {
+		ob.mu.RLock()
+
+		allPrices := make(map[string]struct{})
+		for p := range ob.bids {
+			allPrices[p] = struct{}{}
 		}
-		
-		// Round to tick size
-		rounded := math.Round(price/tickSize) * tickSize
-		
-		bidQty := ob.bids[p]
-		askQty := ob.asks[p]
-		
-		levels = append(levels, OrderbookLevel{
-			Price:  rounded,
-			BidQty: bidQty,
-			AskQty: askQty,
-		})
-	}
-	
-	ob.mu.RUnlock()
-	
-	if b.onOrderbookSnapshot != nil {
-		b.onOrderbookSnapshot(OrderbookSnapshot{
-			Exchange:   b.name,
-			Symbol:     b.symbol,
-			MarketType: b.marketType,
-			TickSize:   tickSize,
-			Levels:     levels,
-			Timestamp:  time.Now(),
-		})
+		for p := range ob.asks {
+			allPrices[p] = struct{}{}
+		}
+
+		var levels []OrderbookLevel
+		for p := range allPrices {
+			price, _ := strconv.ParseFloat(p, 64)
+			if math.IsNaN(price) || price == 0 {
+				continue
+			}
+
+			rounded := math.Round(price/tickSize) * tickSize
+			levels = append(levels, OrderbookLevel{
+				Price:  rounded,
+				BidQty: ob.bids[p],
+				AskQty: ob.asks[p],
+			})
+		}
+
+		ob.mu.RUnlock()
+
+		if b.onOrderbookSnapshot != nil {
+			b.onOrderbookSnapshot(OrderbookSnapshot{
+				Exchange:   b.name,
+				Symbol:     symbol,
+				MarketType: b.marketType,
+				TickSize:   tickSize,
+				Levels:     levels,
+				Timestamp:  time.Now().UTC(),
+			})
+		}
 	}
 }

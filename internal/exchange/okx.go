@@ -12,14 +12,15 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"oml-aggr-mcp/internal/config"
 )
 
 type OKXConnector struct {
+	ConnectorRuntime
 	name       string
 	wsURL      string
-	symbol     string
+	markets    []config.MarketConfig
 	marketType string
-	instID     string
 
 	ws      *websocket.Conn
 	mu      sync.RWMutex
@@ -49,25 +50,29 @@ func NewOKXConnector() *OKXConnector {
 	}
 }
 
-func (o *OKXConnector) Name() string            { return o.name }
+func (o *OKXConnector) Name() string { return o.name }
+
 func (o *OKXConnector) MarketTypes() []string { return []string{"spot", "perp"} }
 
-func (o *OKXConnector) OnTrade(cb func(Trade))                        { o.onTrade = cb }
-func (o *OKXConnector) OnOrderbookSnapshot(cb func(OrderbookSnapshot)) { o.onOrderbookSnapshot = cb }
-func (o *OKXConnector) OnLiquidation(cb func(Liquidation))            { o.onLiquidation = cb }
-func (o *OKXConnector) OnMarketStat(cb func(MarketStat))               { o.onMarketStat = cb }
+func (o *OKXConnector) OnTrade(cb func(Trade)) { o.onTrade = cb }
 
-func (o *OKXConnector) Connect(symbol, marketType string) error {
-	o.symbol = strings.ToUpper(symbol)
-	o.marketType = marketType
-	o.orderbooks[marketType] = &okxOrderbook{bids: make(map[string]float64), asks: make(map[string]float64)}
-	if o.symbol == "BTCUSDT" {
-		o.symbol = "BTC-USDT"
+func (o *OKXConnector) OnOrderbookSnapshot(cb func(OrderbookSnapshot)) { o.onOrderbookSnapshot = cb }
+
+func (o *OKXConnector) OnLiquidation(cb func(Liquidation)) { o.onLiquidation = cb }
+
+func (o *OKXConnector) OnMarketStat(cb func(MarketStat)) { o.onMarketStat = cb }
+
+func (o *OKXConnector) Connect(markets []config.MarketConfig) error {
+	if len(markets) == 0 {
+		return fmt.Errorf("no markets configured")
 	}
-	if marketType == "spot" {
-		o.instID = o.symbol
-	} else {
-		o.instID = o.symbol + "-SWAP"
+
+	o.markets = append([]config.MarketConfig(nil), markets...)
+	o.marketType = string(markets[0].Type)
+	o.orderbooks = make(map[string]*okxOrderbook, len(markets))
+	for _, market := range markets {
+		instID := okxNormalizePair(market.Pair, market.Type)
+		o.orderbooks[instID] = &okxOrderbook{bids: make(map[string]float64), asks: make(map[string]float64)}
 	}
 	return nil
 }
@@ -76,33 +81,38 @@ func (o *OKXConnector) Disconnect() {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.running = false
+	o.MarkDisconnected("shutdown")
 	if o.cancel != nil {
 		o.cancel()
 	}
 	if o.ws != nil {
-		o.ws.Close()
+		_ = o.ws.Close()
 	}
 }
 
 func (o *OKXConnector) Run(ctx context.Context) error {
 	o.ctx, o.cancel = context.WithCancel(ctx)
 	defer o.cancel()
+	o.MarkConnecting("connecting")
+
 	o.mu.Lock()
 	o.running = true
 	o.mu.Unlock()
+
 	for {
 		select {
 		case <-o.ctx.Done():
 			return nil
 		default:
 		}
+
 		if err := o.connectAndStream(); err != nil {
-			slog.Error("okx stream error", "exchange", o.name, "err", err)
+			slog.Error("okx stream error", "exchange", o.name, "market", o.marketType, "err", err)
+			delay := o.MarkReconnectScheduled("reconnect_scheduled")
 			select {
 			case <-o.ctx.Done():
 				return nil
-			case <-time.After(5 * time.Second):
-				continue
+			case <-time.After(delay):
 			}
 		}
 	}
@@ -111,22 +121,31 @@ func (o *OKXConnector) Run(ctx context.Context) error {
 func (o *OKXConnector) connectAndStream() error {
 	ws, _, err := websocket.DefaultDialer.Dial(o.wsURL, nil)
 	if err != nil {
+		o.MarkDisconnected("dial_error")
 		return fmt.Errorf("dial: %w", err)
 	}
 	defer ws.Close()
 	o.ws = ws
 
-	args := []map[string]string{
-		{"channel": "trades", "instId": o.instID},
-		{"channel": "books", "instId": o.instID},
-		{"channel": "tickers", "instId": o.instID},
+	args := make([]map[string]string, 0, len(o.markets)*4)
+	for _, market := range o.markets {
+		instID := okxNormalizePair(market.Pair, market.Type)
+		args = append(args,
+			map[string]string{"channel": "trades", "instId": instID},
+			map[string]string{"channel": "books", "instId": instID},
+			map[string]string{"channel": "tickers", "instId": instID},
+		)
+		if market.Type == config.MarketTypePerp {
+			args = append(args, map[string]string{"channel": "liquidation-orders", "instType": "SWAP", "instId": instID})
+		}
 	}
-	if o.marketType == "perp" {
-		args = append(args, map[string]string{"channel": "liquidation-orders", "instType": "SWAP", "mgnMode": "", "instId": o.instID})
-	}
-	if err := ws.WriteJSON(map[string]interface{}{"op": "subscribe", "args": args}); err != nil {
+
+	if err := ws.WriteJSON(map[string]any{"op": "subscribe", "args": args}); err != nil {
+		o.MarkDisconnected("subscribe_error")
 		return fmt.Errorf("subscribe: %w", err)
 	}
+
+	o.MarkConnected("connected")
 	go o.pingLoop(ws)
 
 	for {
@@ -135,11 +154,15 @@ func (o *OKXConnector) connectAndStream() error {
 			return nil
 		default:
 		}
-		ws.SetReadDeadline(time.Now().Add(60 * time.Second))
+
+		_ = ws.SetReadDeadline(time.Now().Add(60 * time.Second))
 		_, msg, err := ws.ReadMessage()
 		if err != nil {
+			o.MarkDisconnected("read_error")
 			return fmt.Errorf("read: %w", err)
 		}
+		o.MarkMessageReceived()
+
 		if err := o.handleMessage(msg); err != nil {
 			slog.Warn("okx handle message", "err", err)
 		}
@@ -147,13 +170,17 @@ func (o *OKXConnector) connectAndStream() error {
 }
 
 func (o *OKXConnector) handleMessage(msg []byte) error {
+	if string(msg) == "pong" {
+		return nil
+	}
+
 	var wrapper struct {
-		Event   string          `json:"event"`
-		Arg     map[string]string `json:"arg"`
-		Data    json.RawMessage `json:"data"`
-		Action  string          `json:"action"`
-		Code    string          `json:"code"`
-		Msg     string          `json:"msg"`
+		Event  string            `json:"event"`
+		Arg    map[string]string `json:"arg"`
+		Data   json.RawMessage   `json:"data"`
+		Action string            `json:"action"`
+		Code   string            `json:"code"`
+		Msg    string            `json:"msg"`
 	}
 	if err := json.Unmarshal(msg, &wrapper); err != nil {
 		return err
@@ -161,17 +188,18 @@ func (o *OKXConnector) handleMessage(msg []byte) error {
 	if wrapper.Event != "" {
 		return nil
 	}
-	ch := wrapper.Arg["channel"]
-	switch ch {
+
+	instID := strings.ToUpper(wrapper.Arg["instId"])
+	switch wrapper.Arg["channel"] {
 	case "trades":
 		return o.handleTrade(wrapper.Data)
 	case "books":
 		if wrapper.Action == "snapshot" {
-			return o.handleOrderbookSnapshot(wrapper.Data)
+			return o.handleOrderbookSnapshot(instID, wrapper.Data)
 		}
-		return o.handleOrderbookDelta(wrapper.Data)
+		return o.handleOrderbookDelta(instID, wrapper.Data)
 	case "tickers":
-		return o.handleTicker(wrapper.Data)
+		return o.handleTicker(instID, wrapper.Data)
 	case "liquidation-orders":
 		return o.handleLiquidation(wrapper.Data)
 	}
@@ -180,125 +208,171 @@ func (o *OKXConnector) handleMessage(msg []byte) error {
 
 func (o *OKXConnector) handleTrade(data []byte) error {
 	var trades []struct {
-		InstID string `json:"instId"`
+		InstID  string `json:"instId"`
 		TradeID string `json:"tradeId"`
-		Px     string `json:"px"`
-		Sz     string `json:"sz"`
-		Side   string `json:"side"`
-		Ts     string `json:"ts"`
+		Px      string `json:"px"`
+		Sz      string `json:"sz"`
+		Side    string `json:"side"`
+		Ts      string `json:"ts"`
 	}
 	if err := json.Unmarshal(data, &trades); err != nil {
 		return err
 	}
+
 	for _, t := range trades {
 		price, _ := strconv.ParseFloat(t.Px, 64)
 		qty, _ := strconv.ParseFloat(t.Sz, 64)
 		if price == 0 || qty == 0 {
 			continue
 		}
-		isMaker := t.Side == "sell"
+
+		instID := strings.ToUpper(t.InstID)
 		trade := Trade{
 			Exchange:     o.name,
-			Symbol:       o.symbol,
-			MarketType:   o.marketType,
+			Symbol:       instID,
+			MarketType:   okxMarketType(instID),
 			Price:        price,
 			Qty:          qty,
-			QuoteQty:     price * qty,
+			QuoteQty:     okxQuoteQty(instID, price, qty),
 			Side:         strings.ToLower(t.Side),
-			IsBuyerMaker: isMaker,
-			Timestamp:    time.Now(),
+			IsBuyerMaker: strings.EqualFold(t.Side, "sell"),
+			Timestamp:    okxTimestamp(t.Ts),
 			TradeID:      t.TradeID,
 		}
+		o.MarkTrade(trade.Timestamp)
 		if o.onTrade != nil {
 			o.onTrade(trade)
 		}
 	}
+
 	return nil
 }
 
-func (o *OKXConnector) handleOrderbookSnapshot(data []byte) error {
+func okxTimestamp(ts string) time.Time {
+	ms, _ := strconv.ParseInt(ts, 10, 64)
+	return time.UnixMilli(ms).UTC()
+}
+
+func okxMarketType(instID string) string {
+	if strings.HasSuffix(strings.ToUpper(instID), "-SWAP") {
+		return "perp"
+	}
+	return "spot"
+}
+
+func okxQuoteQty(instID string, price, qty float64) float64 {
+	upper := strings.ToUpper(instID)
+	if strings.HasSuffix(upper, "-USD-SWAP") {
+		return qty * 100
+	}
+	if strings.HasSuffix(upper, "-SWAP") {
+		return qty * 0.01 * price
+	}
+	return price * qty
+}
+
+func okxNormalizePair(pair string, marketType config.MarketType) string {
+	upper := strings.ToUpper(pair)
+	if marketType == config.MarketTypeSpot {
+		switch upper {
+		case "BTCUSDT":
+			return "BTC-USDT"
+		case "BTCUSDC":
+			return "BTC-USDC"
+		case "BTCUSD":
+			return "BTC-USD"
+		}
+	}
+	if marketType == config.MarketTypePerp && !strings.Contains(upper, "-") {
+		switch upper {
+		case "BTCUSDT":
+			return "BTC-USDT-SWAP"
+		case "BTCUSD":
+			return "BTC-USD-SWAP"
+		case "BTCUSDC":
+			return "BTC-USDC-SWAP"
+		}
+		return upper + "-SWAP"
+	}
+	return upper
+}
+
+func (o *OKXConnector) handleOrderbookSnapshot(instID string, data []byte) error {
 	var obs []struct {
 		Bids [][2]string `json:"bids"`
 		Asks [][2]string `json:"asks"`
-		Ts   string      `json:"ts"`
 	}
 	if err := json.Unmarshal(data, &obs); err != nil {
 		return err
 	}
-	book := o.orderbooks[o.marketType]
+	book := o.orderbooks[instID]
 	if book == nil || len(obs) == 0 {
 		return nil
 	}
-	ob := obs[0]
+
 	book.mu.Lock()
 	book.bids = make(map[string]float64)
 	book.asks = make(map[string]float64)
-	for _, b := range ob.Bids {
-		price := b[0]
-		qty, _ := strconv.ParseFloat(b[1], 64)
+	for _, bid := range obs[0].Bids {
+		qty, _ := strconv.ParseFloat(bid[1], 64)
 		if qty == 0 {
-			delete(book.bids, price)
-		} else {
-			book.bids[price] = qty
+			continue
 		}
+		book.bids[bid[0]] = qty
 	}
-	for _, a := range ob.Asks {
-		price := a[0]
-		qty, _ := strconv.ParseFloat(a[1], 64)
+	for _, ask := range obs[0].Asks {
+		qty, _ := strconv.ParseFloat(ask[1], 64)
 		if qty == 0 {
-			delete(book.asks, price)
-		} else {
-			book.asks[price] = qty
+			continue
 		}
+		book.asks[ask[0]] = qty
 	}
 	book.mu.Unlock()
 	return nil
 }
 
-func (o *OKXConnector) handleOrderbookDelta(data []byte) error {
+func (o *OKXConnector) handleOrderbookDelta(instID string, data []byte) error {
 	var obs []struct {
 		Bids [][2]string `json:"bids"`
 		Asks [][2]string `json:"asks"`
-		Ts   string      `json:"ts"`
 	}
 	if err := json.Unmarshal(data, &obs); err != nil {
 		return err
 	}
-	book := o.orderbooks[o.marketType]
+	book := o.orderbooks[instID]
 	if book == nil || len(obs) == 0 {
 		return nil
 	}
-	ob := obs[0]
+
 	book.mu.Lock()
-	for _, b := range ob.Bids {
-		price := b[0]
-		qty, _ := strconv.ParseFloat(b[1], 64)
+	for _, bid := range obs[0].Bids {
+		qty, _ := strconv.ParseFloat(bid[1], 64)
 		if qty == 0 {
-			delete(book.bids, price)
+			delete(book.bids, bid[0])
 		} else {
-			book.bids[price] = qty
+			book.bids[bid[0]] = qty
 		}
 	}
-	for _, a := range ob.Asks {
-		price := a[0]
-		qty, _ := strconv.ParseFloat(a[1], 64)
+	for _, ask := range obs[0].Asks {
+		qty, _ := strconv.ParseFloat(ask[1], 64)
 		if qty == 0 {
-			delete(book.asks, price)
+			delete(book.asks, ask[0])
 		} else {
-			book.asks[price] = qty
+			book.asks[ask[0]] = qty
 		}
 	}
 	book.mu.Unlock()
 	return nil
 }
 
-func (o *OKXConnector) handleTicker(data []byte) error {
+func (o *OKXConnector) handleTicker(instID string, data []byte) error {
 	var tickers []struct {
-		MarkPx     string `json:"markPx"`
-		IdxPx      string `json:"idxPx"`
-		FundingRate string `json:"fundingRate"`
+		InstID          string `json:"instId"`
+		MarkPx          string `json:"markPx"`
+		IdxPx           string `json:"idxPx"`
+		FundingRate     string `json:"fundingRate"`
 		NextFundingTime string `json:"nextFundingTime"`
-		Oi         string `json:"oi"`
+		Oi              string `json:"oi"`
 	}
 	if err := json.Unmarshal(data, &tickers); err != nil {
 		return err
@@ -306,22 +380,27 @@ func (o *OKXConnector) handleTicker(data []byte) error {
 	if len(tickers) == 0 {
 		return nil
 	}
+
 	t := tickers[0]
+	if t.InstID != "" {
+		instID = strings.ToUpper(t.InstID)
+	}
 	mp, _ := strconv.ParseFloat(t.MarkPx, 64)
 	ip, _ := strconv.ParseFloat(t.IdxPx, 64)
 	fr, _ := strconv.ParseFloat(t.FundingRate, 64)
 	oi, _ := strconv.ParseFloat(t.Oi, 64)
 	nft, _ := strconv.ParseInt(t.NextFundingTime, 10, 64)
+
 	stat := MarketStat{
 		Exchange:        o.name,
-		Symbol:          o.symbol,
-		MarketType:      o.marketType,
+		Symbol:          instID,
+		MarketType:      okxMarketType(instID),
 		MarkPrice:       mp,
 		IndexPrice:      ip,
 		FundingRate:     fr,
 		OpenInterest:    oi,
-		NextFundingTime: time.Unix(nft/1000, 0),
-		Timestamp:       time.Now(),
+		NextFundingTime: time.UnixMilli(nft).UTC(),
+		Timestamp:       time.Now().UTC(),
 	}
 	if o.onMarketStat != nil {
 		o.onMarketStat(stat)
@@ -340,35 +419,39 @@ func (o *OKXConnector) handleLiquidation(data []byte) error {
 	if err := json.Unmarshal(data, &liqs); err != nil {
 		return err
 	}
+
 	for _, l := range liqs {
 		price, _ := strconv.ParseFloat(l.Px, 64)
 		qty, _ := strconv.ParseFloat(l.Sz, 64)
+		instID := strings.ToUpper(l.InstID)
 		liq := Liquidation{
 			Exchange:   o.name,
-			Symbol:     o.symbol,
-			MarketType: o.marketType,
+			Symbol:     instID,
+			MarketType: okxMarketType(instID),
 			Side:       strings.ToLower(l.Side),
 			Price:      price,
 			Qty:        qty,
-			QuoteQty:   price * qty,
-			Timestamp:  time.Now(),
+			QuoteQty:   okxQuoteQty(instID, price, qty),
+			Timestamp:  okxTimestamp(l.Ts),
 		}
 		if o.onLiquidation != nil {
 			o.onLiquidation(liq)
 		}
 	}
+
 	return nil
 }
 
 func (o *OKXConnector) pingLoop(ws *websocket.Conn) {
 	ticker := time.NewTicker(25 * time.Second)
 	defer ticker.Stop()
+
 	for {
 		select {
 		case <-o.ctx.Done():
 			return
 		case <-ticker.C:
-			if err := ws.WriteJSON(map[string]string{"op": "ping"}); err != nil {
+			if err := ws.WriteMessage(websocket.TextMessage, []byte("ping")); err != nil {
 				return
 			}
 		}
@@ -376,40 +459,40 @@ func (o *OKXConnector) pingLoop(ws *websocket.Conn) {
 }
 
 func (o *OKXConnector) EmitOrderbookSnapshot(tickSize float64) {
-	book := o.orderbooks[o.marketType]
-	if book == nil {
-		return
-	}
-	book.mu.RLock()
-	allPrices := make(map[string]struct{})
-	for p := range book.bids {
-		allPrices[p] = struct{}{}
-	}
-	for p := range book.asks {
-		allPrices[p] = struct{}{}
-	}
-	var levels []OrderbookLevel
-	for p := range allPrices {
-		price, _ := strconv.ParseFloat(p, 64)
-		if math.IsNaN(price) || price == 0 {
-			continue
+	for instID, book := range o.orderbooks {
+		book.mu.RLock()
+		allPrices := make(map[string]struct{}, len(book.bids)+len(book.asks))
+		for p := range book.bids {
+			allPrices[p] = struct{}{}
 		}
-		rounded := math.Round(price/tickSize) * tickSize
-		levels = append(levels, OrderbookLevel{
-			Price:  rounded,
-			BidQty: book.bids[p],
-			AskQty: book.asks[p],
-		})
-	}
-	book.mu.RUnlock()
-	if o.onOrderbookSnapshot != nil {
-		o.onOrderbookSnapshot(OrderbookSnapshot{
-			Exchange:   o.name,
-			Symbol:     o.symbol,
-			MarketType: o.marketType,
-			TickSize:   tickSize,
-			Levels:     levels,
-			Timestamp:  time.Now(),
-		})
+		for p := range book.asks {
+			allPrices[p] = struct{}{}
+		}
+
+		levels := make([]OrderbookLevel, 0, len(allPrices))
+		for p := range allPrices {
+			price, _ := strconv.ParseFloat(p, 64)
+			if math.IsNaN(price) || price == 0 {
+				continue
+			}
+			rounded := math.Round(price/tickSize) * tickSize
+			levels = append(levels, OrderbookLevel{
+				Price:  rounded,
+				BidQty: book.bids[p],
+				AskQty: book.asks[p],
+			})
+		}
+		book.mu.RUnlock()
+
+		if o.onOrderbookSnapshot != nil {
+			o.onOrderbookSnapshot(OrderbookSnapshot{
+				Exchange:   o.name,
+				Symbol:     instID,
+				MarketType: okxMarketType(instID),
+				TickSize:   tickSize,
+				Levels:     levels,
+				Timestamp:  time.Now().UTC(),
+			})
+		}
 	}
 }
