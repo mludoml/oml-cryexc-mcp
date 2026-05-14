@@ -133,6 +133,11 @@ func (s *StdioServer) handleToolsList(msg *mcpMessage) mcpResponse {
 			Description: "List configured exchanges and their markets",
 			InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
 		},
+		{
+			Name:        "aggr_orderbook",
+			Description: "Get current order book snapshot for an exchange and pair",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"exchange":{"type":"string","description":"Exchange name (e.g. BINANCE)"},"pair":{"type":"string","description":"Pair (e.g. btcusdt)"}}}`),
+		},
 	}
 	return mcpResponse{
 		JSONRPC: "2.0",
@@ -213,6 +218,16 @@ func (s *StdioServer) handleToolsCall(msg *mcpMessage) mcpResponse {
 		endpoint = q + strings.Join(parts, "&")
 	case "aggr_exchanges_status":
 		endpoint = "/exchanges"
+	case "aggr_orderbook":
+		q := "/orderbook/current?"
+		parts := []string{}
+		if ex, ok := params.Arguments["exchange"].(string); ok {
+			parts = append(parts, "exchange="+ex)
+		}
+		if pair, ok := params.Arguments["pair"].(string); ok {
+			parts = append(parts, "pair="+pair)
+		}
+		endpoint = q + strings.Join(parts, "&")
 	default:
 		return mcpResponse{JSONRPC: "2.0", Error: &mcpError{Code: -32601, Message: "Tool not found: " + params.Name}}
 	}
