@@ -158,6 +158,9 @@ func (o *OKXConnector) connectAndStream() error {
 		_ = ws.SetReadDeadline(time.Now().Add(60 * time.Second))
 		_, msg, err := ws.ReadMessage()
 		if err != nil {
+			if o.ctx.Err() != nil {
+				return nil
+			}
 			o.MarkDisconnected("read_error")
 			return fmt.Errorf("read: %w", err)
 		}

@@ -175,6 +175,9 @@ func (bf *BitfinexConnector) connectAndStream() error {
 		ws.SetReadDeadline(time.Now().Add(60 * time.Second))
 		_, msg, err := ws.ReadMessage()
 		if err != nil {
+			if bf.ctx.Err() != nil {
+				return nil
+			}
 			bf.MarkDisconnected("read_error")
 			return fmt.Errorf("read: %w", err)
 		}

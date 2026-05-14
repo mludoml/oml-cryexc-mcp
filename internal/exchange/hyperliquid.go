@@ -166,6 +166,9 @@ func (h *HyperliquidConnector) connectAndStream() error {
 		ws.SetReadDeadline(time.Now().Add(60 * time.Second))
 		_, msg, err := ws.ReadMessage()
 		if err != nil {
+			if h.ctx.Err() != nil {
+				return nil
+			}
 			h.MarkDisconnected("read_error")
 			return fmt.Errorf("read: %w", err)
 		}

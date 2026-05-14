@@ -210,6 +210,9 @@ func (b *BybitConnector) connectAndStream(group bybitSubscriptionGroup) error {
 		_ = ws.SetReadDeadline(time.Now().Add(60 * time.Second))
 		_, msg, err := ws.ReadMessage()
 		if err != nil {
+			if b.ctx.Err() != nil {
+				return nil
+			}
 			b.MarkDisconnected("read_error")
 			return fmt.Errorf("read: %w", err)
 		}

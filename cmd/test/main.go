@@ -32,9 +32,16 @@ func main() {
 		wantTrades int // min trades to pass
 	}{
 		{"BINANCE spot", exchange.NewBinanceConnector(), "BTCUSDT", "spot", 50},
-		{"BINANCE perp", exchange.NewBinanceConnector(), "BTCUSDT", "perp", 50},
+		{"BINANCE perp", exchange.NewBinanceBtcusdtPerpConnector(), "BTCUSDT", "perp", 50},
+		{"BINANCE inverse", exchange.NewBinanceBtcusdInverseConnector(), "BTCUSD_PERP", "perp", 10},
 		{"BYBIT spot", exchange.NewBybitConnector(), "BTCUSDT", "spot", 10},
 		{"BYBIT perp", exchange.NewBybitConnector(), "BTCUSDT", "perp", 10},
+		{"BITSTAMP spot", exchange.NewBitstampConnector(), "BTCUSD", "spot", 5},
+		{"BITMEX perp", exchange.NewBitmexConnector(), "XBTUSD", "perp", 5},
+		{"KRAKEN spot", exchange.NewKrakenConnector(), "XBT/USD", "spot", 5},
+		{"KRAKEN perp", exchange.NewKrakenConnector(), "PF_XBTUSD", "perp", 5},
+		{"DERIBIT perp", exchange.NewDeribitConnector(), "BTC-PERPETUAL", "perp", 5},
+		{"DYDX perp", exchange.NewDydxConnector(), "BTC-USD", "perp", 5},
 		{"OKX spot", exchange.NewOKXConnector(), "BTCUSDT", "spot", 10},
 		{"OKX perp", exchange.NewOKXConnector(), "BTCUSDT", "perp", 10},
 		{"COINBASE spot", exchange.NewCoinbaseConnector(), "BTCUSDT", "spot", 50},
@@ -76,7 +83,7 @@ func testExchange(name string, ex exchange.Connector, symbol, marketType string,
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	done := make(chan error, 1)

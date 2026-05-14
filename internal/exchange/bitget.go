@@ -169,10 +169,16 @@ func (bg *BitgetConnector) connectAndStream() error {
 		ws.SetReadDeadline(time.Now().Add(60 * time.Second))
 		_, msg, err := ws.ReadMessage()
 		if err != nil {
+			if bg.ctx.Err() != nil {
+				return nil
+			}
 			bg.MarkDisconnected("read_error")
 			return fmt.Errorf("read: %w", err)
 		}
 		bg.MarkMessageReceived()
+		if string(msg) == "pong" {
+			continue
+		}
 		if err := bg.handleMessage(msg); err != nil {
 			slog.Warn("bitget handle message", "err", err)
 		}

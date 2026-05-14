@@ -152,6 +152,14 @@ Bezwzględnie czytaj odpowiadający plik w `oml-aggr/src/exchanges/` jako wzór.
 | 5.5 | `internal/exchange/dydx.go` | `dydx.ts` | v4 indexer WS, pair `BTC-USD` |
 | 5.6 | (split Binance) | `binanceFutures.ts` | rozbity w fazie 4.1; `BINANCE_BTCUSD_INVERSE` (COIN-M): `usdSize = qty * 100` |
 
+### 5.2 Do podszlifowania — ✅ ZROBIONE
+
+- `bybit.go`: dodano `ctx.Err() != nil` check w `ReadMessage` → zamknięcie bez `use of closed network connection`.
+- `kraken.go`: analogiczny `ctx.Err() != nil` check w obu streamach (spot + futures).
+- `bitget.go`: jawnie odfiltrowany raw `"pong"` przed `json.Unmarshal`.
+- **Systematyczny fix**: `ctx.Err() != nil` check dodany do wszystkich 14 konektorów — zamknięcie socketa przez `Disconnect()` nie loguje już błędu.
+- `cmd/test`: split na per-exchange przesunięty do fazy 5.5 (większy refactoring, zrobić po walidacji 46 par).
+
 ---
 
 ## Faza 5.5 — Integracja wszystkich konektorów + testy per-każdy

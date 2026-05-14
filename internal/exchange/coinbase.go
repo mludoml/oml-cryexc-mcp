@@ -161,6 +161,9 @@ func (c *CoinbaseConnector) connectAndStream() error {
 		_ = ws.SetReadDeadline(time.Now().Add(90 * time.Second))
 		_, msg, err := ws.ReadMessage()
 		if err != nil {
+			if c.ctx.Err() != nil {
+				return nil
+			}
 			c.MarkDisconnected("read_error")
 			return fmt.Errorf("read: %w", err)
 		}

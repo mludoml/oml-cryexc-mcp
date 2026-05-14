@@ -72,9 +72,16 @@ func main() {
 		h.AddConnector(conn)
 	}
 
-	register("binance", exchange.NewBinanceConnector(), config.ExchangeBinance)
+	registerByType("binance", func() exchange.Connector { return exchange.NewBinanceConnector() }, config.ExchangeBinance, config.MarketTypeSpot)
+	register("binance-btcusdt-perp", exchange.NewBinanceBtcusdtPerpConnector(), config.ExchangeBinanceBtcusdtPerp)
+	register("binance-btcusd-inverse", exchange.NewBinanceBtcusdInverseConnector(), config.ExchangeBinanceBtcusdInverse)
 	registerByType("bybit", func() exchange.Connector { return exchange.NewBybitConnector() }, config.ExchangeBybit, config.MarketTypeSpot)
 	registerByType("bybit", func() exchange.Connector { return exchange.NewBybitConnector() }, config.ExchangeBybit, config.MarketTypePerp)
+	register("bitstamp", exchange.NewBitstampConnector(), config.ExchangeBitstamp)
+	register("bitmex", exchange.NewBitmexConnector(), config.ExchangeBitmex)
+	register("kraken", exchange.NewKrakenConnector(), config.ExchangeKraken)
+	register("deribit", exchange.NewDeribitConnector(), config.ExchangeDeribit)
+	register("dydx", exchange.NewDydxConnector(), config.ExchangeDydx)
 	registerByType("okx", func() exchange.Connector { return exchange.NewOKXConnector() }, config.ExchangeOKX, config.MarketTypeSpot)
 	registerByType("okx", func() exchange.Connector { return exchange.NewOKXConnector() }, config.ExchangeOKX, config.MarketTypePerp)
 	registerByType("coinbase", func() exchange.Connector { return exchange.NewCoinbaseConnector() }, config.ExchangeCoinbase, config.MarketTypeSpot)
