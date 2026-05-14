@@ -2,7 +2,6 @@ package orderbook
 
 import (
 	"context"
-	"log/slog"
 	"sync"
 	"time"
 )
@@ -11,16 +10,14 @@ import (
 type Registry struct {
 	mu      sync.RWMutex
 	states  map[string]*State // key = exchange+"|"+pair
-	writer  *Writer
 	snapInt time.Duration
 	topN    int
 }
 
 // NewRegistry creates a Registry that snapshots every interval.
-func NewRegistry(writer *Writer, snapInterval time.Duration, topN int) *Registry {
+func NewRegistry(snapInterval time.Duration, topN int) *Registry {
 	return &Registry{
 		states:  make(map[string]*State),
-		writer:  writer,
 		snapInt: snapInterval,
 		topN:    topN,
 	}
@@ -81,10 +78,7 @@ func (r *Registry) snapshotAll() {
 			continue
 		}
 		parts := splitKey(key)
-		snap := st.Snapshot(parts[0], parts[1], r.topN)
-		if r.writer != nil {
-			r.writer.Push(snap)
-		}
+		_ = st.Snapshot(parts[0], parts[1], r.topN)
 	}
 }
 

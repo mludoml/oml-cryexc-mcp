@@ -22,17 +22,16 @@ services:
       timeout: 5s
       retries: 5
 
-  mcp-hub:
+  oml-aggr-mcp:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: oml-aggr-mcp
     environment:
       DB_URL: postgres://aggr:aggr_secret@timescaledb:5432/aggr?sslmode=disable
-      SYMBOLS: BTCUSDT
       LOG_LEVEL: info
     ports:
-      - "8080:8080"
+      - "3000:3000"
       - "8081:8081"
     mem_limit: 1024m
     cpus: 1.5
