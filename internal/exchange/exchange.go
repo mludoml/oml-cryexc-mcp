@@ -3,6 +3,8 @@ package exchange
 import (
 	"context"
 	"time"
+
+	"oml-aggr-mcp/internal/config"
 )
 
 // Trade represents a single trade tick
@@ -69,9 +71,14 @@ type MarketStat struct {
 type Connector interface {
 	Name() string
 	MarketTypes() []string // e.g. ["spot", "perp"]
-	Connect(symbol string, marketType string) error
+	Connect(markets []config.MarketConfig) error
 	Disconnect()
 	Run(ctx context.Context) error
+	LastMessageAt() time.Time
+	LastTradeAt() time.Time
+	Reconnects() int
+	DowntimeSince() *time.Time
+	StatusReason() string
 	
 	// Callbacks set by the hub
 	OnTrade(cb func(Trade))

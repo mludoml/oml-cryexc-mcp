@@ -5,14 +5,14 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
-	"oml-cryexc-mcp/internal/exchange"
-	"oml-cryexc-mcp/internal/hub"
-	"oml-cryexc-mcp/internal/mcp"
-	"oml-cryexc-mcp/internal/store"
+	"oml-aggr-mcp/internal/config"
+	"oml-aggr-mcp/internal/exchange"
+	"oml-aggr-mcp/internal/hub"
+	"oml-aggr-mcp/internal/mcp"
+	"oml-aggr-mcp/internal/store"
 )
 
 func main() {
@@ -28,14 +28,8 @@ func main() {
 
 	dbURL := os.Getenv("DB_URL")
 	if dbURL == "" {
-		dbURL = "postgres://cryexec:cryexec_secret@localhost:5432/cryexec?sslmode=disable"
+		dbURL = "postgres://aggr:aggr_secret@localhost:5432/aggr?sslmode=disable"
 	}
-
-	symbolsStr := os.Getenv("SYMBOLS")
-	if symbolsStr == "" {
-		symbolsStr = "BTCUSDT"
-	}
-	symbols := strings.Split(symbolsStr, ",")
 
 	s, err := store.New(dbURL)
 	if err != nil {
@@ -44,88 +38,51 @@ func main() {
 	}
 	defer s.Close()
 
-	h := hub.New(s, symbols)
+	h := hub.New(s, nil)
+	marketsByExchange := config.MarketsByExchange()
 
-	for _, sym := range symbols {
-		sym = strings.TrimSpace(sym)
-
-		binanceSpot := exchange.NewBinanceConnector()
-		if err := binanceSpot.Connect(sym, "spot"); err != nil {
-			slog.Error("binance spot connect", "err", err)
-		} else {
-			h.AddConnector(binanceSpot)
+	register := func(name string, conn exchange.Connector, exchangeID config.ExchangeID) {
+		markets := marketsByExchange[exchangeID]
+		if len(markets) == 0 {
+			return
 		}
-
-		binancePerp := exchange.NewBinanceConnector()
-		if err := binancePerp.Connect(sym, "perp"); err != nil {
-			slog.Error("binance perp connect", "err", err)
-		} else {
-			h.AddConnector(binancePerp)
+		if err := conn.Connect(markets); err != nil {
+			slog.Error("connector connect", "name", name, "err", err)
+			return
 		}
-
-		bybitSpot := exchange.NewBybitConnector()
-		if err := bybitSpot.Connect(sym, "spot"); err != nil {
-			slog.Error("bybit spot connect", "err", err)
-		} else {
-			h.AddConnector(bybitSpot)
-		}
-
-		bybitPerp := exchange.NewBybitConnector()
-		if err := bybitPerp.Connect(sym, "perp"); err != nil {
-			slog.Error("bybit perp connect", "err", err)
-		} else {
-			h.AddConnector(bybitPerp)
-		}
-
-		okxSpot := exchange.NewOKXConnector()
-		if err := okxSpot.Connect(sym, "spot"); err != nil {
-			slog.Error("okx spot connect", "err", err)
-		} else {
-			h.AddConnector(okxSpot)
-		}
-
-		okxPerp := exchange.NewOKXConnector()
-		if err := okxPerp.Connect(sym, "perp"); err != nil {
-			slog.Error("okx perp connect", "err", err)
-		} else {
-			h.AddConnector(okxPerp)
-		}
-
-		coinbase := exchange.NewCoinbaseConnector()
-		if err := coinbase.Connect(sym, "spot"); err != nil {
-			slog.Error("coinbase connect", "err", err)
-		} else {
-			h.AddConnector(coinbase)
-		}
-
-		hyperliquid := exchange.NewHyperliquidConnector()
-		if err := hyperliquid.Connect(sym, "perp"); err != nil {
-			slog.Error("hyperliquid connect", "err", err)
-		} else {
-			h.AddConnector(hyperliquid)
-		}
-
-		bitgetSpot := exchange.NewBitgetConnector()
-		if err := bitgetSpot.Connect(sym, "spot"); err != nil {
-			slog.Error("bitget spot connect", "err", err)
-		} else {
-			h.AddConnector(bitgetSpot)
-		}
-
-		bitgetPerp := exchange.NewBitgetConnector()
-		if err := bitgetPerp.Connect(sym, "perp"); err != nil {
-			slog.Error("bitget perp connect", "err", err)
-		} else {
-			h.AddConnector(bitgetPerp)
-		}
-
-		bitfinexSpot := exchange.NewBitfinexConnector()
-		if err := bitfinexSpot.Connect(sym, "spot"); err != nil {
-			slog.Error("bitfinex spot connect", "err", err)
-		} else {
-			h.AddConnector(bitfinexSpot)
-		}
+		h.AddConnector(conn)
 	}
+
+	registerByType := func(name string, factory func() exchange.Connector, exchangeID config.ExchangeID, marketType config.MarketType) {
+		all := marketsByExchange[exchangeID]
+		filtered := make([]config.MarketConfig, 0, len(all))
+		for _, market := range all {
+			if market.Type == marketType {
+				filtered = append(filtered, market)
+			}
+		}
+		if len(filtered) == 0 {
+			return
+		}
+		conn := factory()
+		if err := conn.Connect(filtered); err != nil {
+			slog.Error("connector connect", "name", name, "type", marketType, "err", err)
+			return
+		}
+		h.AddConnector(conn)
+	}
+
+	register("binance", exchange.NewBinanceConnector(), config.ExchangeBinance)
+	registerByType("bybit", func() exchange.Connector { return exchange.NewBybitConnector() }, config.ExchangeBybit, config.MarketTypeSpot)
+	registerByType("bybit", func() exchange.Connector { return exchange.NewBybitConnector() }, config.ExchangeBybit, config.MarketTypePerp)
+	registerByType("okx", func() exchange.Connector { return exchange.NewOKXConnector() }, config.ExchangeOKX, config.MarketTypeSpot)
+	registerByType("okx", func() exchange.Connector { return exchange.NewOKXConnector() }, config.ExchangeOKX, config.MarketTypePerp)
+	registerByType("coinbase", func() exchange.Connector { return exchange.NewCoinbaseConnector() }, config.ExchangeCoinbase, config.MarketTypeSpot)
+	registerByType("coinbase", func() exchange.Connector { return exchange.NewCoinbaseConnector() }, config.ExchangeCoinbase, config.MarketTypePerp)
+	register("hyperliquid", exchange.NewHyperliquidConnector(), config.ExchangeHyperliquid)
+	registerByType("bitget", func() exchange.Connector { return exchange.NewBitgetConnector() }, config.ExchangeBitget, config.MarketTypeSpot)
+	registerByType("bitget", func() exchange.Connector { return exchange.NewBitgetConnector() }, config.ExchangeBitget, config.MarketTypePerp)
+	register("bitfinex", exchange.NewBitfinexConnector(), config.ExchangeBitfinex)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -149,7 +106,7 @@ func main() {
 		}
 	}()
 
-	slog.Info("oml-cryexc-mcp started", "rest", "http://localhost:8080", "mcp", "http://localhost:8081/mcp/sse")
+	slog.Info("oml-aggr-mcp started", "rest", "http://localhost:8080", "mcp", "http://localhost:8081/mcp/sse")
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)

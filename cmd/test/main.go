@@ -9,7 +9,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"oml-cryexc-mcp/internal/exchange"
+	"oml-aggr-mcp/internal/config"
+	"oml-aggr-mcp/internal/exchange"
 )
 
 func main() {
@@ -70,7 +71,7 @@ func testExchange(name string, ex exchange.Connector, symbol, marketType string,
 		}
 	})
 
-	if err := ex.Connect(symbol, marketType); err != nil {
+	if err := ex.Connect([]config.MarketConfig{{Pair: symbol, Type: config.MarketType(marketType)}}); err != nil {
 		fmt.Printf("❌ %-20s connect: %v\n", name, err)
 		return
 	}
