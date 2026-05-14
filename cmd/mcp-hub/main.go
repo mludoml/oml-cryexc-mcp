@@ -15,6 +15,7 @@ import (
 	"oml-aggr-mcp/internal/mcp"
 	"oml-aggr-mcp/internal/metrics"
 	"oml-aggr-mcp/internal/store"
+	"oml-aggr-mcp/internal/ws"
 )
 
 func main() {
@@ -41,7 +42,8 @@ func main() {
 	defer s.Close()
 
 	metricsRegistry := metrics.NewRegistry(60 * time.Second)
-	h := hub.New(s, nil, metricsRegistry)
+	wsHub := ws.NewHub(metricsRegistry)
+	h := hub.New(s, nil, metricsRegistry, wsHub)
 	marketsByExchange := config.MarketsByExchange()
 
 	register := func(name string, conn exchange.Connector, exchangeID config.ExchangeID) {
@@ -96,13 +98,14 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	
+
+	wsHub.Start(ctx)
 	if err := h.Start(ctx); err != nil {
 		slog.Error("failed to start hub", "err", err)
 		os.Exit(1)
 	}
 
-	restServer := api.NewServer(h, s)
+	restServer := api.NewServer(h, s, wsHub)
 	go func() {
 		if err := restServer.Start(":3000"); err != nil {
 			slog.Error("rest server error", "err", err)
@@ -124,13 +127,16 @@ func main() {
 
 	slog.Info("shutting down...")
 	h.Stop()
-	
+	wsHub.Stop()
+
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
 	if err := restServer.Stop(shutdownCtx); err != nil {
-		slog.Error("rest shutdown error", "err", err)
+		slog.Error("rest server shutdown error", "err", err)
 	}
 	if err := mcpProtoServer.Stop(shutdownCtx); err != nil {
-		slog.Error("mcp shutdown error", "err", err)
+		slog.Error("mcp server shutdown error", "err", err)
 	}
+
+	slog.Info("shutdown complete")
 }

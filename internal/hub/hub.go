@@ -11,6 +11,7 @@ import (
 	"oml-aggr-mcp/internal/metrics"
 	"oml-aggr-mcp/internal/monitoring"
 	"oml-aggr-mcp/internal/store"
+	"oml-aggr-mcp/internal/ws"
 )
 
 const defaultTradeRingCapacity = 500_000
@@ -27,6 +28,7 @@ type Hub struct {
 	liqBufMu       sync.Mutex
 
 	metricsRegistry *metrics.Registry
+	wsHub          *ws.Hub
 	monitoring     *monitoring.Service
 
 	ctx    context.Context
@@ -34,12 +36,13 @@ type Hub struct {
 	wg     sync.WaitGroup
 }
 
-func New(s *store.Store, symbols []string, metricsRegistry *metrics.Registry) *Hub {
+func New(s *store.Store, symbols []string, metricsRegistry *metrics.Registry, wsHub *ws.Hub) *Hub {
 	return &Hub{
 		store:           s,
 		symbols:         symbols,
 		tradeRing:       buffer.New[exchange.Trade](defaultTradeRingCapacity),
 		metricsRegistry: metricsRegistry,
+		wsHub:           wsHub,
 	}
 }
 
@@ -105,6 +108,10 @@ func (h *Hub) handleTrade(t exchange.Trade) {
 			Timestamp:  t.Timestamp,
 		})
 	}
+
+	if h.wsHub != nil {
+		h.wsHub.Broadcast(ws.Message{Type: "trade", Data: t})
+	}
 }
 
 func (h *Hub) RecentTrades(limit int) []exchange.Trade {
@@ -118,6 +125,9 @@ func (h *Hub) FilterTrades(predicate func(exchange.Trade) bool) []exchange.Trade
 func (h *Hub) handleOrderbookSnapshot(ob exchange.OrderbookSnapshot) {
 	if err := h.store.InsertOrderbookSnapshot(h.ctx, ob); err != nil {
 		slog.Warn("insert ob snapshot error", "err", err)
+	}
+	if h.wsHub != nil {
+		h.wsHub.Broadcast(ws.Message{Type: "orderbook", Data: ob})
 	}
 }
 
@@ -137,11 +147,18 @@ func (h *Hub) handleLiquidation(l exchange.Liquidation) {
 			Timestamp:  l.Timestamp,
 		})
 	}
+
+	if h.wsHub != nil {
+		h.wsHub.Broadcast(ws.Message{Type: "liquidation", Data: l})
+	}
 }
 
 func (h *Hub) handleMarketStat(ms exchange.MarketStat) {
 	if err := h.store.InsertMarketStat(h.ctx, ms); err != nil {
 		slog.Warn("insert market stat error", "err", err)
+	}
+	if h.wsHub != nil {
+		h.wsHub.Broadcast(ws.Message{Type: "marketStat", Data: ms})
 	}
 }
 
@@ -237,3 +254,8 @@ func (h *Hub) requeueLiquidations(liqs []exchange.Liquidation) {
 func (h *Hub) MetricsRegistry() *metrics.Registry {
 	return h.metricsRegistry
 }
+
+func (h *Hub) SetMonitoring(m *monitoring.Service) {
+	h.monitoring = m
+}
+

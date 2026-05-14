@@ -81,17 +81,17 @@ type GlobalSnapshot struct {
 
 // LiquidationSnapshot returns liquidation volumes and counts per exchange and globally.
 type LiquidationSnapshot struct {
-	PerExchange map[WindowKey]struct {
-		LongVol   float64 `json:"long_vol"`
-		ShortVol  float64 `json:"short_vol"`
-		LongCount int64   `json:"long_count"`
-		ShortCount int64  `json:"short_count"`
+	PerExchange map[string]struct {
+		LongVol    float64 `json:"long_vol"`
+		ShortVol   float64 `json:"short_vol"`
+		LongCount  int64   `json:"long_count"`
+		ShortCount int64   `json:"short_count"`
 	} `json:"per_exchange"`
 	Global struct {
-		LongVol   float64 `json:"long_vol"`
-		ShortVol  float64 `json:"short_vol"`
-		LongCount int64   `json:"long_count"`
-		ShortCount int64  `json:"short_count"`
+		LongVol    float64 `json:"long_vol"`
+		ShortVol   float64 `json:"short_vol"`
+		LongCount  int64   `json:"long_count"`
+		ShortCount int64   `json:"short_count"`
 	} `json:"global"`
 }
 
@@ -120,7 +120,7 @@ func (r *Registry) SnapshotAll() (
 		})
 	}
 
-	liqs.PerExchange = make(map[WindowKey]struct {
+	liqs.PerExchange = make(map[string]struct {
 		LongVol    float64 `json:"long_vol"`
 		ShortVol   float64 `json:"short_vol"`
 		LongCount  int64   `json:"long_count"`
@@ -128,7 +128,7 @@ func (r *Registry) SnapshotAll() (
 	})
 	for key, w := range r.liqs {
 		lv, sv, lc, sc := w.Snapshot()
-		liqs.PerExchange[key] = struct {
+		liqs.PerExchange[key.Exchange+"|"+key.MarketType] = struct {
 			LongVol    float64 `json:"long_vol"`
 			ShortVol   float64 `json:"short_vol"`
 			LongCount  int64   `json:"long_count"`

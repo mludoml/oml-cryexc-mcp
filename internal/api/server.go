@@ -12,17 +12,19 @@ import (
 	"oml-aggr-mcp/internal/exchange"
 	"oml-aggr-mcp/internal/hub"
 	"oml-aggr-mcp/internal/store"
+	"oml-aggr-mcp/internal/ws"
 )
 
 type Server struct {
-	mux  *http.ServeMux
-	srv  *http.Server
-	hub  *hub.Hub
+	mux   *http.ServeMux
+	srv   *http.Server
+	hub   *hub.Hub
 	store *store.Store
+	wsHub *ws.Hub
 }
 
-func NewServer(h *hub.Hub, s *store.Store) *Server {
-	return &Server{hub: h, store: s}
+func NewServer(h *hub.Hub, s *store.Store, wsHub *ws.Hub) *Server {
+	return &Server{hub: h, store: s, wsHub: wsHub}
 }
 
 func (s *Server) Start(addr string) error {
@@ -44,6 +46,9 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/history/candles", s.handleHistoryCandles)
 	s.mux.HandleFunc("/history/trades", s.handleHistoryTrades)
 	s.mux.HandleFunc("/exchanges", s.handleExchanges)
+	if s.wsHub != nil {
+		s.mux.HandleFunc("/ws", s.wsHub.ServeWS)
+	}
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -78,10 +83,10 @@ func (s *Server) handleMetricsCurrent(w http.ResponseWriter, r *http.Request) {
 
 	per, global, liqs := s.hub.MetricsRegistry().SnapshotAll()
 	resp := map[string]interface{}{
-		"window":      windowSecs,
-		"timestamp":   time.Now().UTC().Format(time.RFC3339Nano),
-		"perExchange": per,
-		"global":      global,
+		"window":       windowSecs,
+		"timestamp":    time.Now().UTC().Format(time.RFC3339Nano),
+		"perExchange":  per,
+		"global":       global,
 		"liquidations": liqs,
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -131,7 +136,6 @@ func (s *Server) handleHistoryCandles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: query trades_1m via store
 	resp := map[string]interface{}{"candles": []interface{}{}}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
@@ -152,7 +156,6 @@ func (s *Server) handleHistoryTrades(w http.ResponseWriter, r *http.Request) {
 		limit = 10000
 	}
 
-	// TODO: query DB via store
 	resp := map[string]interface{}{"count": 0, "trades": []interface{}{}}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)

@@ -68,11 +68,13 @@ func (h *Hub) loop() {
 			h.mu.Lock()
 			h.clients[c] = struct{}{}
 			h.mu.Unlock()
+			slog.Info("ws client registered", "clients", len(h.clients))
 		case c := <-h.unregister:
 			h.mu.Lock()
 			delete(h.clients, c)
 			h.mu.Unlock()
 			close(c.sendChan)
+			slog.Info("ws client unregistered", "clients", len(h.clients))
 		case m := <-h.broadcast:
 			h.mu.RLock()
 			for c := range h.clients {
@@ -96,6 +98,7 @@ func (h *Hub) metricsLoop() {
 		case <-ticker.C:
 			if h.metricsReg != nil {
 				per, global, liqs := h.metricsReg.SnapshotAll()
+				slog.Info("ws metricsLoop broadcast", "per_count", len(per), "global_cvd", global.CVD)
 				h.Broadcast(Message{Type: "metrics", Data: map[string]any{
 					"perExchange":  per,
 					"global":       global,
@@ -116,9 +119,10 @@ func (h *Hub) Broadcast(m Message) {
 func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		slog.Warn("ws upgrade failed", "err", err)
+		slog.Warn("ws upgrade failed", "err", err, "remote", r.RemoteAddr)
 		return
 	}
+		slog.Info("ws client connected", "remote", r.RemoteAddr)
 	client := &Client{
 		conn:     conn,
 		subbed:   make(map[string]bool),
@@ -172,11 +176,25 @@ func (c *Client) writePump() {
 			}
 			c.mu.Lock()
 			if m, ok := msg.(Message); ok {
-				if c.subbed[m.Type] {
-					c.conn.WriteJSON(m)
+				if c.subbed[m.Type] || c.subbed["all"] {
+					data, err := json.Marshal(m)
+					if err != nil {
+						slog.Warn("ws marshal failed", "err", err)
+					} else {
+						if err := c.conn.WriteMessage(websocket.TextMessage, data); err != nil {
+							slog.Warn("ws write failed", "err", err)
+						}
+					}
 				}
 			} else {
-				c.conn.WriteJSON(msg)
+				data, err := json.Marshal(msg)
+				if err != nil {
+					slog.Warn("ws marshal failed", "err", err)
+				} else {
+					if err := c.conn.WriteMessage(websocket.TextMessage, data); err != nil {
+						slog.Warn("ws write failed", "err", err)
+					}
+				}
 			}
 			c.mu.Unlock()
 		case <-ticker.C:
