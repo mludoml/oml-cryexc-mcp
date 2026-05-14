@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"oml-aggr-mcp/internal/api"
 	"oml-aggr-mcp/internal/config"
 	"oml-aggr-mcp/internal/exchange"
 	"oml-aggr-mcp/internal/hub"
@@ -99,9 +100,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	mcpServer := mcp.NewServer(s)
+	restServer := api.NewServer(h, s)
 	go func() {
-		if err := mcpServer.Start(":8080"); err != nil {
+		if err := restServer.Start(":3000"); err != nil {
 			slog.Error("rest server error", "err", err)
 		}
 	}()
@@ -113,7 +114,7 @@ func main() {
 		}
 	}()
 
-	slog.Info("oml-aggr-mcp started", "rest", "http://localhost:8080", "mcp", "http://localhost:8081/mcp/sse")
+	slog.Info("oml-aggr-mcp started", "rest", "http://localhost:3000", "mcp", "http://localhost:8081/mcp/sse")
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -124,7 +125,7 @@ func main() {
 	
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
-	if err := mcpServer.Stop(shutdownCtx); err != nil {
+	if err := restServer.Stop(shutdownCtx); err != nil {
 		slog.Error("rest shutdown error", "err", err)
 	}
 	if err := mcpProtoServer.Stop(shutdownCtx); err != nil {
