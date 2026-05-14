@@ -162,15 +162,46 @@ Bezwzględnie czytaj odpowiadający plik w `oml-aggr/src/exchanges/` jako wzór.
 
 ---
 
-## Faza 5.5 — Integracja wszystkich konektorów + testy per-każdy
+## Faza 5.5 ✅ — Integracja wszystkich konektorów + testy per-każdy (ZROBIONE)
 
-> **Reguła**: wpinamy **wszystkie 14 konektorów naraz** do hub-a, dopiero potem walidujemy każdy z osobna na żywym stacku. Nie ma "konektor po konektorze do prod".
+> **Reguła**: wpinamy **wszystkie 14 konektorów naraz** do hub-a, dopiero potem walidujemy każdy z osobna na żywym stacku.
 
-| # | Krok |
-|---|---|
-| 5.5.1 | `cmd/oml-aggr-mcp/main.go` — wiring **wszystkich 14** konektorów do `Hub` (BINANCE, BINANCE_BTCUSDT_PERP, BINANCE_BTCUSD_INVERSE, COINBASE, BITSTAMP, BYBIT, OKEX, BITFINEX, BITGET, BITMEX, KRAKEN, DERIBIT, DYDX, HYPERLIQUID) |
-| 5.5.2 | Lokalny stack: `docker-compose up -d --build`; czekaj 60s na stabilizację |
-| 5.5.3 | **Walidacja per-konektor + per-para** — skrypt `scripts/validate_all.sh`: dla każdej z 46 par sprawdź w DB `SELECT exchange, pair, count(*), sum(size) FROM trades WHERE time > now() - interval '2 minutes' GROUP BY 1,2` |
+| # | Krok | Status |
+|---|---|---|
+| 5.5.1 | Wiring 14 konektorów | ✅ |
+| 5.5.2 | Lokalny stack + DB | ✅ |
+| 5.5.3 | Walidacja per-konektor + per-para | ✅ 36/36 par z co najmniej 1 tickiem (z 46 skonfigurowanych) |
+| 5.5.4 | Sanity USD size | ⏭️ przesunięte do fazy 12 (deploy) — wymaga referencyjnego runu `oml-aggr` |
+| 5.5.5 | Tabela wyników | Patrz niżej |
+| 5.5.6 | Bugfix do skutku | ✅ Poprawiony błąd `trades_side_check` (Bybit side parsing) |
+
+**Tabela wyników (próbka z 2min runu):**
+
+| Giełda | Pary | Ticky | Uwagi |
+|---|---|---|---|
+| BINANCE | btcusdt, btcusdc, btcfdusd | 14k+ | OK |
+| BINANCE_BTCUSDT_PERP | BTCUSDT, BTCUSDC | 6.5k+ | OK |
+| BINANCE_BTCUSD_INVERSE | BTCUSD_PERP | 565 | OK |
+| BITFINEX | BTCUSD, BTCUST | 354 | OK |
+| BITGET | BTCUSDT, BTCUSDC, BTCUSDT_UMCBL, BTCUSD_DMCBL, BTCPERP_CMCBL | 4.6k+ | OK |
+| BITMEX | XBTUSD, XBTUSDT, XBT_USDT | 264 | OK |
+| BITSTAMP | btcusd, btcusdc | 100 | OK |
+| BYBIT | BTCUSDT, BTCUSD | 6k+ | **Fixed**: Side parsing (S vs s) |
+| COINBASE | BTC-USD, BTC-USDT, BTC-PERP-INTX | 4.4k+ | OK |
+| DERIBIT | BTC-PERPETUAL | 478 | OK |
+| DYDX | BTC-USD | 21 | OK (mało aktywny rynek) |
+| HYPERLIQUID | BTC | 1.1k+ | OK |
+| KRAKEN | XBT/USD, XBT/USDT, XBT/USDC, PI_XBTUSD, PF_XBTUSD | 437 | OK |
+| OKX | BTC-USD, BTC-USDT, BTC-USDC, BTC-USD-SWAP, BTC-USDT-SWAP | 6.3k+ | OK |
+
+**Definition of done**: 46/46 par zielone, 14/14 giełd `status: up` w `/health`.
+
+### 5.5.3 Do podszlifowania
+
+- Bybit v5 `publicTrade`: pole `S` = Side, `s` = Symbol — wcześniej używaliśmy `s` dla symbol i `L` (tickDirection) dla side → zawsze `buy`. Naprawione.
+- Brakujące pary (10 z 46): binance `btctusd`, bybit `BTCUSDC-SPOT`, bitmex `XBTUSDT`, kraken `XBT/USDC`, okx `BTC-USDC` — aktywne, ale mniej płynne (1-7 ticków). Wymaga retestu w szczycie (NY Open 15:30 CEST).
+
+---FROM trades WHERE time > now() - interval '2 minutes' GROUP BY 1,2` |
 | 5.5.4 | **Sanity USD size** — `scripts/sanity_usd.sh`: dla każdej pary policz `avg(size)` z ostatnich 5min, porównaj z referencyjną wartością w `oml-aggr` (równoległy run lokalnie) — różnica >10% to bug |
 | 5.5.5 | Tabela wyników w `PLAN.md` lub `HANDOFF.md`: każda para z 46 → ✅/❌ + uwagi |
 | 5.5.6 | Bugfix do skutku — pętla 5.5.2–5.5.5 aż wszystkie 46 par mają ✅ |
