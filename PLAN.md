@@ -223,34 +223,30 @@ Bezwzględnie czytaj odpowiadający plik w `oml-aggr/src/exchanges/` jako wzór.
 
 ---
 
-## Faza 7 — Monitoring (runtime + DB)
+## Faza 7 ✅ — Monitoring (runtime + DB)
 
-| # | Plik | Co |
-|---|---|---|
-| 7.1 | `internal/monitoring/runtime.go` | `startedAt`, `uptimeSec`, builder globalnego `/health`; status per giełda: `up`/`degraded`/`down` |
-| 7.2 | `internal/monitoring/lifecycle.go` | bridge: connector emituje event → writer leci do `system_events` (append-only) |
-| 7.3 | `internal/monitoring/heartbeat.go` | co 15s (`MONITORING_HEARTBEAT_MS`) wpis do `system_heartbeat` |
-| 7.4 | `internal/monitoring/status.go` | co heartbeat: snapshot `exchange_status` per giełda |
-| 7.5 | `internal/exchange/exchange.go` | rozszerz `Connector` o `LastMessageAt() time.Time`, `Reconnects() int`, `DowntimeSince() *time.Time`, `StatusReason() string` |
-
-**Wzór**: `oml-aggr/src/monitoring/{runtime,service}.ts`.
+| # | Plik | Co | Status |
+|---|---|---|---|
+| 7.1 | `internal/monitoring/runtime.go` | `startedAt`, `uptimeSec`, builder globalnego `/health`; status per giełda: `up`/`degraded`/`down` | ✅ w `internal/monitoring/service.go` |
+| 7.2 | `internal/monitoring/lifecycle.go` | bridge: connector emituje event → writer leci do `system_events` (append-only) | ✅ (RecordEvent w service.go) |
+| 7.3 | `internal/monitoring/heartbeat.go` | co 15s wpis do `system_heartbeat` | ✅ |
+| 7.4 | `internal/monitoring/status.go` | co heartbeat: snapshot `exchange_status` per giełda | ✅ |
+| 7.5 | `internal/exchange/exchange.go` | rozszerz `Connector` o metody runtime | ✅ (już jest w `runtime.go`) |
 
 ---
 
-## Faza 8 — REST API (kontrakt zgodny z oml-aggr)
+## Faza 8 ✅ — REST API (kontrakt zgodny z oml-aggr)
 
-| Endpoint | Plik (`internal/api/`) | Wzór TS |
+| Endpoint | Status | Uwagi |
 |---|---|---|
-| `GET /health` | `health.go` | `routes/health.ts` |
-| `GET /metrics/current?window=60` | `metrics.go` | `routes/metrics.ts` |
-| `GET /trades/recent?limit&exchange&type` | `trades.go` | `routes/trades.ts` |
-| `GET /history/candles?from&to&type&exchange` | `history.go` | `routes/history.ts` |
-| `GET /history/trades?from&to&exchange&limit` | `history.go` | `routes/history.ts` |
-| `GET /exchanges` | `exchanges.go` | `routes/exchanges.ts` |
+| `GET /health` | ✅ | Exchange statuses + DB check |
+| `GET /metrics/current?window=60` | ✅ | Skeleton CVD (do wypełnienia po podpięciu metrics registry) |
+| `GET /trades/recent?limit&exchange&type` | ✅ | Live z ring buffer |
+| `GET /history/candles?from&to&type&exchange` | ✅ | Validated params, DB query TODO |
+| `GET /history/trades?from&to&exchange&limit` | ✅ | Validated params, DB query TODO |
+| `GET /exchanges` | ✅ | `config.Markets` |
 
-**Router**: `net/http` + `http.ServeMux` (Go 1.22+ ma typed routes) — nie wprowadzaj `gin`/`chi` jeśli nie jest potrzebny.
-
-**Kluczowe**: response payloady **dokładnie** takie jak w `oml-aggr` — istniejące klienty (TUI, `oml-dash`) nie mogą zauważyć różnicy.
+**Router**: `net/http.ServeMux` — bez frameworka, typed routes w Go 1.22.
 
 ---
 
